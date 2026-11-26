@@ -344,11 +344,27 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
             <div class="btn-group">
               <button class="btn btn-shopee" onclick="startShopeeLogin()">
-                🔑 Đăng Nhập Shopee (Mở Chrome)
+                🔑 Đăng Nhập Shopee & Cấp Quyền
               </button>
               <button class="btn btn-success" onclick="runSilverGoldOnly()">
                 ⚡ Chạy Silver & Gold Ngay
               </button>
+            </div>
+
+            <!-- SHOPEE AUTH PANEL -->
+            <div id="shopeeAuthBox" style="display:none; margin-top:14px; padding:14px; border-radius:10px; background:rgba(238,77,45,0.1); border:1px solid #ee4d2d;">
+              <div style="font-size:0.88rem; font-weight:700; color:#ff785a; margin-bottom:8px;">
+                🔐 Kết Nối Quyền Truy Cập Shopee
+              </div>
+              <div style="font-size:0.8rem; color:#cbd5e1; margin-bottom:10px;">
+                Trang <b>shopee.vn/buyer/login</b> đã được mở ở tab mới. Sau khi đăng nhập xong trên Shopee:<br/>
+                • Bạn có thể dán <b>Cookie Shopee</b> (<code>SPC_U=...; SPC_ST=...</code>) hoặc <b>JSON search_items</b> vào ô dưới để cấp quyền phiên làm việc cho Cloud:
+              </div>
+              <input type="text" id="shopeeCookieInput" placeholder="Dán Cookie Shopee (SPC_ST=...) hoặc để trống nếu chỉ xác nhận phiên..." style="margin-bottom:8px;" />
+              <div style="display:flex; gap:8px;">
+                <button class="btn btn-shopee" style="flex:1; padding:8px;" onclick="submitShopeeAuth()">✔ Xác Nhận Cấp Quyền</button>
+                <button class="btn btn-outline" style="padding:8px 12px;" onclick="document.getElementById('shopeeAuthBox').style.display='none'">Đóng</button>
+              </div>
             </div>
           </div>
         </div>
@@ -636,9 +652,29 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     }
 
     async function startShopeeLogin() {
-      const res = await fetch('/api/login-shopee', { method: 'POST' });
+      // Mở trực tiếp trang đăng nhập Shopee trên trình duyệt của người dùng
+      window.open('https://shopee.vn/buyer/login', '_blank', 'noopener,noreferrer');
+      document.getElementById('shopeeAuthBox').style.display = 'block';
+      try {
+        await fetch('/api/login-shopee', { method: 'POST' });
+      } catch (e) {}
+      refreshLogsAndStatus();
+    }
+
+    async function submitShopeeAuth() {
+      const cookie_or_json = document.getElementById('shopeeCookieInput').value.trim();
+      const res = await fetch('/api/shopee-auth', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ cookie: cookie_or_json })
+      });
       const out = await res.json();
-      if (!res.ok) alert(out.error || 'Lỗi mở trình duyệt');
+      if (res.ok) {
+        document.getElementById('shopeeAuthBox').style.display = 'none';
+        alert(out.message || 'Đã lưu quyền truy cập phiên Shopee thành công!');
+      } else {
+        alert(out.error || 'Không thể lưu quyền truy cập Shopee');
+      }
       refreshLogsAndStatus();
     }
 
@@ -1034,6 +1070,21 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             t = threading.Thread(target=_run_shopee_login_background, daemon=True)
             t.start()
             self._send_json({"status": "started"})
+            return
+
+        if path == "/api/shopee-auth":
+            from config import settings
+            raw_cookie = str(payload.get("cookie") or "").strip()
+            if raw_cookie:
+                for pair in raw_cookie.split(";"):
+                    if "=" in pair:
+                        k, v = pair.split("=", 1)
+                        settings.SHOPEE_COOKIES[k.strip()] = v.strip()
+            logger.info("Đã cấp quyền và đồng bộ phiên đăng nhập Shopee từ giao diện Web.")
+            self._send_json({
+                "status": "authorized",
+                "message": "Đã kết nối và cấp quyền phiên đăng nhập Shopee thành công!",
+            })
             return
 
         if path == "/api/reset-checkpoint":

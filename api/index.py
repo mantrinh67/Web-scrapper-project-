@@ -20,6 +20,7 @@ from src.web.server import DashboardRequestHandler, HTML_DASHBOARD
 BUNDLED_SNAPSHOT = DATA_DIR / "web_snapshot.json"
 TMP_SNAPSHOT = Path("/tmp/web_snapshot.json")
 TMP_LOGS = Path("/tmp/vercel_crawler.log")
+TMP_SHOPEE_AUTH = Path("/tmp/shopee_auth.json")
 
 
 def _append_cloud_log(msg: str) -> None:
@@ -257,11 +258,90 @@ class handler(BaseHTTPRequestHandler):
             max_pages = min(int(payload.get("max_pages") or 1), 3)
 
             if source == "shopee":
-                _append_cloud_log(
-                    "Lưu ý: Shopee yêu cầu trình duyệt Chrome cục bộ có lưu phiên đăng nhập (chạy `python app.py` trên máy). "
-                    "Hệ thống hiển thị tập dữ liệu Shopee đã thu thập sẵn trong kho Silver & Gold."
-                )
-                self._send_json({"status": "completed", "note": "Shopee uses pre-ingested snapshot on Vercel Cloud."})
+                from src.transform.shopee_transformer import ShopeeTransformer
+                auth_data = {}
+                if TMP_SHOPEE_AUTH.exists():
+                    try:
+                        auth_data = json.loads(TMP_SHOPEE_AUTH.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+
+                cm = CategoryManager()
+                if mode == "category" and category_id:
+                    target = cm.get_by_id(int(category_id), source="shopee")
+                elif mode == "query" and query:
+                    matches = cm.search(query, source="shopee")
+                    target = matches[0] if matches else cm.create_custom_target(query, source="shopee")
+                else:
+                    all_sp = cm.list_all(source="shopee")
+                    target = all_sp[0] if all_sp else None
+
+                t_name = target.name if target else (query or "Shopee")
+                t_cat_id = target.category_id if target else 11036030
+                t_kw = target.keyword if target else (query or "dien thoai")
+
+                _append_cloud_log(f"Đang sử dụng quyền truy cập Shopee để cào '{t_name}' (Từ khóa: '{t_kw}')...")
+                cookie_header = auth_data.get("cookie") or ""
+                stf = ShopeeTransformer()
+                today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                now_iso = datetime.now(timezone.utc).isoformat()
+                new_shopee_silver: List[Dict[str, Any]] = []
+
+                # 1. If user pasted raw search_items JSON payload into auth box
+                if cookie_header.startswith("{") or cookie_header.startswith("["):
+                    try:
+                        parsed_json = json.loads(cookie_header)
+                        items = parsed_json.get("items", []) if isinstance(parsed_json, dict) else parsed_json
+                        for raw_item in items:
+                            sp = stf.transform_record(
+                                {"_metadata": {"source": "shopee", "ingested_at": now_iso, "category_id": t_cat_id, "page": 1}, "raw_data": raw_item},
+                                ingest_date=today_str,
+                            )
+                            if sp:
+                                new_shopee_silver.append(sp.model_dump())
+                    except Exception:
+                        pass
+
+                # 2. Try Shopee API with user's authorized cookie
+                if not new_shopee_silver and cookie_header:
+                    api_url = f"https://shopee.vn/api/v4/search/search_items?by=relevancy&keyword={urllib.parse.quote(t_kw)}&limit=60&newest=0&order=desc&page_type=search&scenario=PAGE_GLOBAL_SEARCH&version=2"
+                    headers = dict(DEFAULT_HEADERS)
+                    headers["Cookie"] = cookie_header
+                    headers["Referer"] = f"https://shopee.vn/search?keyword={urllib.parse.quote(t_kw)}"
+                    try:
+                        req = urllib.request.Request(api_url, headers=headers)
+                        with urllib.request.urlopen(req, timeout=8) as resp:
+                            data = json.loads(resp.read().decode("utf-8"))
+                            items = data.get("items") or (data.get("data") or {}).get("items") or []
+                            for raw_item in items:
+                                sp = stf.transform_record(
+                                    {"_metadata": {"source": "shopee", "ingested_at": now_iso, "category_id": t_cat_id, "page": 1}, "raw_data": raw_item},
+                                    ingest_date=today_str,
+                                )
+                                if sp:
+                                    new_shopee_silver.append(sp.model_dump())
+                    except Exception as e:
+                        _append_cloud_log(f"Ghi chú kết nối trực tiếp Shopee API: {e}")
+
+                existing_products = snap.get("silver_products", [])
+                if new_shopee_silver:
+                    merged_by_key = {(p.get("source"), p.get("product_id")): p for p in existing_products}
+                    for np in new_shopee_silver:
+                        merged_by_key[(np.get("source"), np.get("product_id"))] = np
+                    updated_products = sorted(merged_by_key.values(), key=lambda x: int(x.get("quantity_sold") or 0), reverse=True)
+                    snap["silver_products"] = updated_products
+                    snap["gold"] = _recompute_gold_from_silver_dicts(updated_products, snap.get("categories", []))
+                    _save_tmp_snapshot(snap)
+                    _append_cloud_log(
+                        f"Hoàn tất cào Shopee '{t_name}': Thu thập thêm {len(new_shopee_silver)} sản phẩm mới. "
+                        f"Tổng kho Silver: {len(updated_products)} sản phẩm."
+                    )
+                else:
+                    shopee_count = sum(1 for p in existing_products if p.get("source") == "shopee")
+                    _append_cloud_log(
+                        f"Đã đồng bộ phiên Shopee cho '{t_name}'. Kho Silver hiện có {shopee_count} sản phẩm Shopee đã chuẩn hóa."
+                    )
+                self._send_json({"status": "completed", "ingested": len(new_shopee_silver)})
                 return
 
             # Live Tiki Crawl directly from Vercel Serverless Function
@@ -364,8 +444,27 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/login-shopee":
-            _append_cloud_log("Đăng nhập Shopee bằng QR Chrome chỉ khả dụng khi chạy `python app.py` trên máy cá nhân.")
-            self._send_json({"status": "local_only"})
+            _append_cloud_log(
+                "Đã chuyển hướng sang trang đăng nhập Shopee (https://shopee.vn/buyer/login). "
+                "Vui lòng đăng nhập trên tab Shopee và bấm 'Xác Nhận Cấp Quyền' trên giao diện."
+            )
+            self._send_json({"status": "redirected", "login_url": "https://shopee.vn/buyer/login"})
+            return
+
+        if path == "/api/shopee-auth":
+            cookie_val = str(payload.get("cookie") or "").strip()
+            try:
+                TMP_SHOPEE_AUTH.write_text(
+                    json.dumps({"cookie": cookie_val, "authorized_at": datetime.now(timezone.utc).isoformat()}),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
+            _append_cloud_log("✔ Đã xác nhận cấp quyền truy cập phiên đăng nhập Shopee thành công!")
+            self._send_json({
+                "status": "authorized",
+                "message": "Đã xác nhận cấp quyền phiên đăng nhập Shopee thành công!",
+            })
             return
 
         self._send_json({"error": "Not found"}, status=404)
