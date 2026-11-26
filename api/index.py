@@ -338,9 +338,19 @@ class handler(BaseHTTPRequestHandler):
                     )
                 else:
                     shopee_count = sum(1 for p in existing_products if p.get("source") == "shopee")
-                    _append_cloud_log(
-                        f"Đã đồng bộ phiên Shopee cho '{t_name}'. Kho Silver hiện có {shopee_count} sản phẩm Shopee đã chuẩn hóa."
-                    )
+                    if not cookie_header:
+                        _append_cloud_log(
+                            "[CẢNH BÁO] Chưa có Cookie hoặc JSON search_items từ phiên Shopee. "
+                            "Do bảo mật trình duyệt (Same-Origin Policy), Vercel không thể tự đọc Cookie từ tab shopee.vn. "
+                            "Hãy bấm 'Đăng Nhập Shopee & Cấp Quyền' và dán Response JSON của search_items (hoặc chọn sàn Tiki để cào trực tiếp 100% trên Vercel). "
+                            f"Hiện đang giữ nguyên {shopee_count} sản phẩm Shopee có sẵn."
+                        )
+                    else:
+                        _append_cloud_log(
+                            "[CẢNH BÁO] Shopee chặn kết nối trực tiếp từ IP máy chủ Cloud/Vercel (Anti-bot/403). "
+                            "Để nạp sản phẩm Shopee mới trên Vercel, hãy dán trực tiếp Response JSON của API search_items vào ô 'Đăng Nhập Shopee & Cấp Quyền'. "
+                            f"Hiện đang giữ nguyên {shopee_count} sản phẩm Shopee có sẵn."
+                        )
                 self._send_json({"status": "completed", "ingested": len(new_shopee_silver)})
                 return
 
@@ -452,7 +462,59 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/shopee-auth":
+            from src.transform.shopee_transformer import ShopeeTransformer
             cookie_val = str(payload.get("cookie") or "").strip()
+            cat_id_raw = payload.get("category_id")
+            cat_id = int(cat_id_raw) if cat_id_raw and str(cat_id_raw).isdigit() else 11035954
+
+            if not cookie_val:
+                self._send_json({"error": "Vui lòng dán Response JSON (search_items) hoặc Cookie Shopee."}, status=400)
+                return
+
+            # If user pasted raw Shopee search_items JSON, immediately transform & ingest into Silver & Gold!
+            if cookie_val.startswith("{") or cookie_val.startswith("["):
+                try:
+                    parsed_json = json.loads(cookie_val)
+                    items = (
+                        parsed_json.get("items")
+                        or (parsed_json.get("data") or {}).get("items")
+                        or []
+                        if isinstance(parsed_json, dict)
+                        else parsed_json
+                    )
+                    stf = ShopeeTransformer()
+                    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    ingested_items: List[Dict[str, Any]] = []
+                    for raw_item in items:
+                        sp = stf.transform_record(
+                            {"_metadata": {"source": "shopee", "ingested_at": now_iso, "category_id": cat_id, "page": 1}, "raw_data": raw_item},
+                            ingest_date=today_str,
+                        )
+                        if sp:
+                            ingested_items.append(sp.model_dump())
+
+                    if ingested_items:
+                        existing_products = snap.get("silver_products", [])
+                        merged_by_key = {(p.get("source"), p.get("product_id")): p for p in existing_products}
+                        for np in ingested_items:
+                            merged_by_key[(np.get("source"), np.get("product_id"))] = np
+                        updated_products = sorted(merged_by_key.values(), key=lambda x: int(x.get("quantity_sold") or 0), reverse=True)
+                        snap["silver_products"] = updated_products
+                        for c in snap.get("categories", []):
+                            if c.get("category_id") == cat_id and c.get("source") == "shopee":
+                                c["last_page"] = int(c.get("last_page") or 0) + 1
+                                c["total_records"] = int(c.get("total_records") or 0) + len(ingested_items)
+                        snap["gold"] = _recompute_gold_from_silver_dicts(updated_products, snap.get("categories", []))
+                        _save_tmp_snapshot(snap)
+                        msg = f"✔ Đã bóc tách và nạp thành công {len(ingested_items)} sản phẩm Shopee vào Silver & Gold! Tổng kho: {len(updated_products)} sản phẩm."
+                        _append_cloud_log(msg)
+                        self._send_json({"status": "ingested", "count": len(ingested_items), "message": msg})
+                        return
+                except Exception as e:
+                    self._send_json({"error": f"JSON Shopee không hợp lệ: {e}"}, status=400)
+                    return
+
             try:
                 TMP_SHOPEE_AUTH.write_text(
                     json.dumps({"cookie": cookie_val, "authorized_at": datetime.now(timezone.utc).isoformat()}),
@@ -460,10 +522,10 @@ class handler(BaseHTTPRequestHandler):
                 )
             except Exception:
                 pass
-            _append_cloud_log("✔ Đã xác nhận cấp quyền truy cập phiên đăng nhập Shopee thành công!")
+            _append_cloud_log("✔ Đã lưu Cookie phiên đăng nhập Shopee.")
             self._send_json({
                 "status": "authorized",
-                "message": "Đã xác nhận cấp quyền phiên đăng nhập Shopee thành công!",
+                "message": "Đã lưu Cookie phiên Shopee thành công!",
             })
             return
 

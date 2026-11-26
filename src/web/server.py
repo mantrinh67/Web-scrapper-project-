@@ -354,15 +354,15 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             <!-- SHOPEE AUTH PANEL -->
             <div id="shopeeAuthBox" style="display:none; margin-top:14px; padding:14px; border-radius:10px; background:rgba(238,77,45,0.1); border:1px solid #ee4d2d;">
               <div style="font-size:0.88rem; font-weight:700; color:#ff785a; margin-bottom:8px;">
-                🔐 Kết Nối Quyền Truy Cập Shopee
+                🔐 Kết Nối Phiên Shopee / Nạp JSON Trực Tiếp
               </div>
               <div style="font-size:0.8rem; color:#cbd5e1; margin-bottom:10px;">
-                Trang <b>shopee.vn/buyer/login</b> đã được mở ở tab mới. Sau khi đăng nhập xong trên Shopee:<br/>
-                • Bạn có thể dán <b>Cookie Shopee</b> (<code>SPC_U=...; SPC_ST=...</code>) hoặc <b>JSON search_items</b> vào ô dưới để cấp quyền phiên làm việc cho Cloud:
+                Do bảo mật trình duyệt (<i>Same-Origin Policy</i>), web trên Vercel không thể tự đọc Cookie từ tab <b>shopee.vn</b>.<br/>
+                • <b>Cách nạp dữ liệu Shopee mới lên Cloud:</b> Trên tab Shopee đã đăng nhập, tìm sản phẩm cần cào → mở <b>F12 → Network → lọc <code>search_items</code> → Copy Response JSON</b> rồi dán vào ô dưới đây (hoặc dán chuỗi <code>Cookie</code>):
               </div>
-              <input type="text" id="shopeeCookieInput" placeholder="Dán Cookie Shopee (SPC_ST=...) hoặc để trống nếu chỉ xác nhận phiên..." style="margin-bottom:8px;" />
+              <textarea id="shopeeCookieInput" rows="3" placeholder="Dán Response JSON của search_items (khuyên dùng trên Vercel) hoặc chuỗi Cookie Shopee..." style="width:100%; padding:10px; border-radius:8px; border:1px solid #475569; background:#0f172a; color:#f8fafc; font-size:0.82rem; margin-bottom:8px; resize:vertical;"></textarea>
               <div style="display:flex; gap:8px;">
-                <button class="btn btn-shopee" style="flex:1; padding:8px;" onclick="submitShopeeAuth()">✔ Xác Nhận Cấp Quyền</button>
+                <button class="btn btn-shopee" style="flex:1; padding:8px;" onclick="submitShopeeAuth()">✔ Xác Nhận & Nạp Dữ Liệu</button>
                 <button class="btn btn-outline" style="padding:8px 12px;" onclick="document.getElementById('shopeeAuthBox').style.display='none'">Đóng</button>
               </div>
             </div>
@@ -663,17 +663,23 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
     async function submitShopeeAuth() {
       const cookie_or_json = document.getElementById('shopeeCookieInput').value.trim();
+      const category_id = document.getElementById('categorySelect').value;
+      if (!cookie_or_json) {
+        alert('Vui lòng dán Response JSON (search_items) hoặc chuỗi Cookie từ tab Shopee trước khi bấm Xác nhận!');
+        return;
+      }
       const res = await fetch('/api/shopee-auth', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ cookie: cookie_or_json })
+        body: JSON.stringify({ cookie: cookie_or_json, category_id })
       });
       const out = await res.json();
       if (res.ok) {
         document.getElementById('shopeeAuthBox').style.display = 'none';
-        alert(out.message || 'Đã lưu quyền truy cập phiên Shopee thành công!');
+        document.getElementById('shopeeCookieInput').value = '';
+        alert(out.message || 'Đã lưu và xử lý dữ liệu Shopee thành công!');
       } else {
-        alert(out.error || 'Không thể lưu quyền truy cập Shopee');
+        alert(out.error || 'Không thể xử lý dữ liệu Shopee');
       }
       refreshLogsAndStatus();
     }
