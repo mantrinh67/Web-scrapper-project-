@@ -1,0 +1,125 @@
+{
+  "shopee": [
+    {
+      "target_id": "shopee_11036030",
+      "name": "Điện Thoại & Phụ Kiện",
+      "keyword": "dien thoai",
+      "category_id": 11036030,
+      "url_path": "Dien-Thoai-Phu-Kien-cat.11036030"
+    },
+    {
+      "target_id": "shopee_11035954",
+      "name": "Máy Tính & Laptop",
+      "keyword": "laptop",
+      "category_id": 11035954,
+      "url_path": "May-Tinh-Laptop-cat.11035954"
+    },
+    {
+      "target_id": "shopee_11035567",
+      "name": "Thời Trang Nam",
+      "keyword": "quan ao nam",
+      "category_id": 11035567,
+      "url_path": "Thoi-Trang-Nam-cat.11035567"
+    },
+    {
+      "target_id": "shopee_11036132",
+      "name": "Thiết Bị Điện Gia Dụng",
+      "keyword": "do gia dung",
+      "category_id": 11036132,
+      "url_path": "Thiet-Bi-Dien-Gia-Dung-cat.11036132"
+    },
+    {
+      "target_id": "shopee_11035568",
+      "name": "Thời Trang Nữ",
+      "keyword": "quan ao nu",
+      "category_id": 11035568,
+      "url_path": "Thoi-Trang-Nu-cat.11035568"
+    },
+    {
+      "target_id": "shopee_11036467",
+      "name": "Sắc Đẹp & Mỹ Phẩm",
+      "keyword": "my pham",
+      "category_id": 11036467,
+      "url_path": "Sac-Dep-cat.11036467"
+    },
+    {
+      "target_id": "shopee_11036793",
+      "name": "Giày Dép Nam",
+      "keyword": "giay nam",
+      "category_id": 11036793,
+      "url_path": "Giay-Dep-Nam-cat.11036793"
+    },
+    {
+      "target_id": "shopee_11036854",
+      "name": "Giày Dép Nữ",
+      "keyword": "giay nu",
+      "category_id": 11036854,
+      "url_path": "Giay-Dep-Nu-cat.11036854"
+    },
+    {
+      "target_id": "shopee_11037043",
+      "name": "Đồng Hồ",
+      "keyword": "dong ho",
+      "category_id": 11037043,
+      "url_path": "Dong-Ho-cat.11037043"
+    },
+    {
+      "target_id": "shopee_11037494",
+      "name": "Nhà Sách Online",
+      "keyword": "sach",
+      "category_id": 11037494,
+      "url_path": "Nha-Sach-Online-cat.11037494"
+    },
+    {
+      "target_id": "shopee_11035953",
+      "name": "Thiết Bị Điện Tử & Âm Thanh",
+      "keyword": "tai nghe loa",
+      "category_id": 11035953,
+      "url_path": "Thiet-Bi-Dien-Tu-cat.11035953"
+    }
+  ],
+  "tiki": [
+    {
+      "target_id": "tiki_1789",
+      "name": "Điện Thoại - Máy Tính Bảng",
+      "keyword": "dien thoai",
+      "category_id": 1789,
+      "url_key": "dien-thoai-may-tinh-bang"
+    },
+    {
+      "target_id": "tiki_1846",
+      "name": "Laptop - Máy Vi Tính",
+      "keyword": "laptop",
+      "category_id": 1846,
+      "url_key": "laptop-may-vi-tinh-linh-kien"
+    },
+    {
+      "target_id": "tiki_1815",
+      "name": "Thiết Bị Số - Phụ Kiện Số",
+      "keyword": "tai nghe",
+      "category_id": 1815,
+      "url_key": "thiet-bi-kts-phu-kien-so"
+    },
+    {
+      "target_id": "tiki_8322",
+      "name": "Nhà Sách Tiki",
+      "keyword": "sach",
+      "category_id": 8322,
+      "url_key": "nha-sach-tiki"
+    },
+    {
+      "target_id": "tiki_1882",
+      "name": "Điện Gia Dụng",
+      "keyword": "noi com dien",
+      "category_id": 1882,
+      "url_key": "dien-gia-dung"
+    },
+    {
+      "target_id": "tiki_1520",
+      "name": "Làm Đẹp - Sức Khỏe",
+      "keyword": "my pham",
+      "category_id": 1520,
+      "url_key": "lam-dep-suc-khoe"
+    }
+  ]
+}

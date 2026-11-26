@@ -1,0 +1,10 @@
+data/browser_profile
+data/bronze
+data/silver
+data/gold
+logs
+__pycache__
+*.pyc
+.venv
+venv
+tests

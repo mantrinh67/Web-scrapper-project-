@@ -1,0 +1,33 @@
+# Browser session & sensitive cookies (Shopee persistent profile & Chrome cache)
+data/browser_profile/
+
+# Medallion Data Lake layers (keep web_snapshot.json for Vercel Cloud deployment)
+data/bronze/
+data/silver/
+data/gold/
+!data/web_snapshot.json
+
+# Runtime checkpoints & logs
+data/checkpoint.json
+logs/
+*.log
+
+# Python byte-compiled / cache / virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+
+# IDE & OS metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
