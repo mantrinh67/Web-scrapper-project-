@@ -10,7 +10,10 @@ class CheckpointManager:
 
     def __init__(self, filepath: Path = CHECKPOINT_FILE):
         self.filepath = filepath
-        self.filepath.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.filepath.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
         self.state: Dict[str, Any] = self._load()
 
     def _load(self) -> Dict[str, Any]:

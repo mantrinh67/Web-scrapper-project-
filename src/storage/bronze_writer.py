@@ -15,7 +15,10 @@ class BronzeWriter:
 
     def __init__(self, base_dir: Path = BRONZE_DIR):
         self.base_dir = base_dir
-        self.base_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.base_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
 
     def get_partition_dir(
         self,

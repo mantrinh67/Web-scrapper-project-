@@ -1,7 +1,11 @@
 from src.transform.base_transformer import BaseTransformer, SilverProduct
 from src.transform.shopee_transformer import ShopeeTransformer
 from src.transform.tiki_transformer import TikiTransformer
-from src.transform.silver_writer import SilverPipeline
+
+try:
+    from src.transform.silver_writer import SilverPipeline
+except ImportError:
+    SilverPipeline = None  # type: ignore
 
 __all__ = [
     "BaseTransformer",
