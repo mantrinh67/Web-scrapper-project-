@@ -182,7 +182,7 @@ def _recompute_gold_from_silver_dicts(
     }
 
 
-class VercelServerlessHandler(BaseHTTPRequestHandler):
+class handler(BaseHTTPRequestHandler):
     """Vercel Python Serverless Entrypoint (`api/index.py`)."""
 
     def _send_json(self, data: Dict[str, Any], status: int = 200) -> None:
@@ -369,7 +369,3 @@ class VercelServerlessHandler(BaseHTTPRequestHandler):
             return
 
         self._send_json({"error": "Not found"}, status=404)
-
-
-# Vercel Python runtime looks for `handler` subclassing `BaseHTTPRequestHandler`
-handler = VercelServerlessHandler
