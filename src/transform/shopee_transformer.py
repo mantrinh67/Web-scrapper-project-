@@ -54,6 +54,8 @@ class ShopeeTransformer(BaseTransformer):
         name = (
             asset.get("name")
             or item_basic.get("name")
+            or item_data.get("name")
+            or raw.get("name")
             or raw.get("title")
             or ""
         ).strip()
@@ -68,6 +70,7 @@ class ShopeeTransformer(BaseTransformer):
             or brand_info.get("brand_name")
             or item_data.get("brand")
             or item_basic.get("brand")
+            or raw.get("brand")
             or "Unknown"
         )
         if not brand or str(brand).strip() in ("", "0", "None", "No Brand"):
@@ -80,12 +83,17 @@ class ShopeeTransformer(BaseTransformer):
         raw_price = (
             price_card.get("price")
             or item_basic.get("price")
+            or item_data.get("price")
+            or raw.get("price")
             or 0
         )
         raw_orig_price = (
             price_card.get("original_price")
             or price_card.get("strikethrough_price")
             or item_basic.get("price_before_discount")
+            or item_data.get("price_before_discount")
+            or raw.get("price_before_discount")
+            or raw.get("price_max_before_discount")
             or raw_price
         )
 
@@ -99,7 +107,7 @@ class ShopeeTransformer(BaseTransformer):
             original_price = price
 
         # 5. Discount rate (%)
-        raw_discount = price_card.get("discount") or item_basic.get("raw_discount") or 0
+        raw_discount = price_card.get("discount") or item_basic.get("raw_discount") or raw.get("raw_discount") or 0
         if original_price > price and original_price > 0:
             discount_rate = round((1.0 - (price / original_price)) * 100.0, 2)
         elif raw_discount:
@@ -108,7 +116,7 @@ class ShopeeTransformer(BaseTransformer):
             discount_rate = 0.0
 
         # 6. Rating and review counts
-        rating_obj = item_data.get("item_rating") or item_basic.get("item_rating") or {}
+        rating_obj = item_data.get("item_rating") or item_basic.get("item_rating") or raw.get("item_rating") or {}
         rating_average = round(float(rating_obj.get("rating_star") or 0.0), 2)
         rating_counts = rating_obj.get("rating_count")
         if isinstance(rating_counts, list) and len(rating_counts) > 0:
@@ -123,16 +131,18 @@ class ShopeeTransformer(BaseTransformer):
             or sold_obj.get("monthly_sold_count")
             or item_basic.get("historical_sold")
             or item_basic.get("sold")
+            or raw.get("historical_sold")
+            or raw.get("sold")
             or 0
         )
 
         # 8. Shop info & Location
         shop_data = item_data.get("shop_data") or {}
-        shop_name = shop_data.get("shop_name") or item_basic.get("shop_name")
-        location = asset.get("shop_location") or item_basic.get("shop_location")
+        shop_name = shop_data.get("shop_name") or item_basic.get("shop_name") or raw.get("shop_name")
+        location = asset.get("shop_location") or item_basic.get("shop_location") or raw.get("shop_location")
 
         # 9. Category & Metadata
-        category_id = meta.get("category_id") or item_data.get("catid") or item_basic.get("catid")
+        category_id = meta.get("category_id") or item_data.get("catid") or item_basic.get("catid") or raw.get("catid")
         ingested_at = str(meta.get("ingested_at") or "")
         page = int(meta.get("page") or 1)
         product_url = raw.get("link") or f"https://shopee.vn/product/{int(shop_id)}/{int(product_id)}"
@@ -157,3 +167,49 @@ class ShopeeTransformer(BaseTransformer):
             ingested_at=ingested_at,
             page=page,
         )
+
+    @classmethod
+    def extract_items_from_payload(cls, parsed_json: Any) -> list[Dict[str, Any]]:
+        """Recursively extracts all Shopee product item objects from any Shopee API JSON response
+        (supports search_items, recommend_v2, rcmd_items, flash_sale, or raw item arrays).
+        """
+        found: list[Dict[str, Any]] = []
+        seen_ids: set[int] = set()
+
+        def _walk(node: Any) -> None:
+            if isinstance(node, list):
+                for elem in node:
+                    _walk(elem)
+                return
+            if not isinstance(node, dict):
+                return
+
+            # Check if this dict itself represents a Shopee product wrapper or flat product item
+            item_data = node.get("item_data") if isinstance(node.get("item_data"), dict) else {}
+            item_basic = node.get("item_basic") if isinstance(node.get("item_basic"), dict) else {}
+            asset = node.get("item_card_displayed_asset") if isinstance(node.get("item_card_displayed_asset"), dict) else {}
+
+            pid = node.get("itemid") or item_data.get("itemid") or item_basic.get("itemid")
+            has_name = bool(
+                asset.get("name")
+                or item_basic.get("name")
+                or item_data.get("name")
+                or node.get("name")
+                or node.get("title")
+            )
+            if pid and has_name:
+                try:
+                    pid_int = int(pid)
+                    if pid_int not in seen_ids:
+                        seen_ids.add(pid_int)
+                        found.append(node)
+                    return  # Do not descend further into child fields of an already-captured item
+                except (ValueError, TypeError):
+                    pass
+
+            for v in node.values():
+                if isinstance(v, (dict, list)):
+                    _walk(v)
+
+        _walk(parsed_json)
+        return found

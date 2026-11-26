@@ -481,17 +481,11 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json({"error": "Vui lòng dán Response JSON (search_items) hoặc Cookie Shopee."}, status=400)
                 return
 
-            # If user pasted raw Shopee search_items JSON, immediately transform & ingest into Silver & Gold!
+            # If user pasted raw Shopee JSON, immediately transform & ingest into Silver & Gold!
             if cookie_val.startswith("{") or cookie_val.startswith("["):
                 try:
                     parsed_json = json.loads(cookie_val)
-                    items = (
-                        parsed_json.get("items")
-                        or (parsed_json.get("data") or {}).get("items")
-                        or []
-                        if isinstance(parsed_json, dict)
-                        else parsed_json
-                    )
+                    items = ShopeeTransformer.extract_items_from_payload(parsed_json)
                     stf = ShopeeTransformer()
                     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
                     now_iso = datetime.now(timezone.utc).isoformat()
@@ -520,6 +514,15 @@ class handler(BaseHTTPRequestHandler):
                         msg = f"✔ Đã bóc tách và nạp thành công {len(ingested_items)} sản phẩm Shopee vào Silver & Gold! Tổng kho: {len(updated_products)} sản phẩm."
                         _append_cloud_log(msg)
                         self._send_json({"status": "ingested", "count": len(ingested_items), "message": msg})
+                        return
+                    else:
+                        root_keys = list(parsed_json.keys())[:8] if isinstance(parsed_json, dict) else ["list"]
+                        self._send_json({
+                            "error": (
+                                f"JSON hợp lệ nhưng không tìm thấy sản phẩm Shopee nào (keys: {root_keys}). "
+                                "Hãy chắc chắn bạn đã copy đúng tab Response của gói tin 'search_items' hoặc 'recommend_v2' chứa danh sách sản phẩm!"
+                            )
+                        }, status=400)
                         return
                 except Exception as e:
                     self._send_json({"error": f"JSON Shopee không hợp lệ: {e}"}, status=400)

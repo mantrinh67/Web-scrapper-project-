@@ -1165,19 +1165,17 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             if raw_val.startswith("{") or raw_val.startswith("["):
                 try:
                     from src.analytics.gold_builder import GoldBuilder
+                    from src.transform.shopee_transformer import ShopeeTransformer
                     from src.transform.silver_writer import SilverPipeline
                     from src.web.snapshot import build_and_save_web_snapshot
 
                     parsed_json = json.loads(raw_val)
-                    items = (
-                        parsed_json.get("items")
-                        or (parsed_json.get("data") or {}).get("items")
-                        or []
-                        if isinstance(parsed_json, dict)
-                        else parsed_json
-                    )
-                    if not items or not isinstance(items, list):
-                        self._send_json({"error": "Không tìm thấy mảng 'items' hợp lệ trong JSON Shopee."}, status=400)
+                    items = ShopeeTransformer.extract_items_from_payload(parsed_json)
+                    if not items:
+                        root_keys = list(parsed_json.keys())[:8] if isinstance(parsed_json, dict) else ["list"]
+                        self._send_json({
+                            "error": f"Không tìm thấy sản phẩm Shopee hợp lệ nào trong JSON (keys: {root_keys})."
+                        }, status=400)
                         return
 
                     cm = _get_category_manager()
