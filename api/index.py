@@ -255,7 +255,8 @@ class handler(BaseHTTPRequestHandler):
             mode = str(payload.get("mode") or "category")
             category_id = payload.get("category_id")
             query = str(payload.get("query") or "").strip()
-            max_pages = min(int(payload.get("max_pages") or 1), 3)
+            limit_items = min(max(int(payload.get("limit_items") or 40), 1), 120)
+            max_pages = min(max(int(payload.get("max_pages") or 1), 1), 3)
 
             if source == "shopee":
                 from src.transform.shopee_transformer import ShopeeTransformer
@@ -338,19 +339,18 @@ class handler(BaseHTTPRequestHandler):
                     )
                 else:
                     shopee_count = sum(1 for p in existing_products if p.get("source") == "shopee")
-                    if not cookie_header:
-                        _append_cloud_log(
-                            "[CẢNH BÁO] Chưa có Cookie hoặc JSON search_items từ phiên Shopee. "
-                            "Do bảo mật trình duyệt (Same-Origin Policy), Vercel không thể tự đọc Cookie từ tab shopee.vn. "
-                            "Hãy bấm 'Đăng Nhập Shopee & Cấp Quyền' và dán Response JSON của search_items (hoặc chọn sàn Tiki để cào trực tiếp 100% trên Vercel). "
-                            f"Hiện đang giữ nguyên {shopee_count} sản phẩm Shopee có sẵn."
-                        )
-                    else:
-                        _append_cloud_log(
-                            "[CẢNH BÁO] Shopee chặn kết nối trực tiếp từ IP máy chủ Cloud/Vercel (Anti-bot/403). "
-                            "Để nạp sản phẩm Shopee mới trên Vercel, hãy dán trực tiếp Response JSON của API search_items vào ô 'Đăng Nhập Shopee & Cấp Quyền'. "
-                            f"Hiện đang giữ nguyên {shopee_count} sản phẩm Shopee có sẵn."
-                        )
+                    friendly_msg = (
+                        f"ℹ️ Hiện có sẵn {shopee_count} sản phẩm Shopee trong kho dữ liệu để bạn xem & tải Excel ngay. "
+                        "Do Shopee hạn chế kết nối trực tiếp từ máy chủ Web Cloud, hãy chọn sàn Tiki nếu bạn muốn lấy thêm sản phẩm mới trực tiếp trên trình duyệt này!"
+                    )
+                    _append_cloud_log(friendly_msg)
+                    self._send_json({
+                        "status": "completed",
+                        "ingested": 0,
+                        "total_silver": len(existing_products),
+                        "friendly_message": friendly_msg,
+                    })
+                    return
                 self._send_json({"status": "completed", "ingested": len(new_shopee_silver)})
                 return
 
@@ -408,6 +408,10 @@ class handler(BaseHTTPRequestHandler):
                     _append_cloud_log(f"Lỗi khi tải trang {page_num}: {e}")
                     break
 
+                if len(new_silver) >= limit_items:
+                    new_silver = new_silver[:limit_items]
+                    break
+
             # Deduplicate & merge with existing snapshot
             existing_products = snap.get("silver_products", [])
             merged_by_key = {(p.get("source"), p.get("product_id")): p for p in existing_products}
@@ -429,11 +433,17 @@ class handler(BaseHTTPRequestHandler):
 
             snap["gold"] = _recompute_gold_from_silver_dicts(updated_products, snap.get("categories", []))
             _save_tmp_snapshot(snap)
-            _append_cloud_log(
-                f"Hoàn tất cào '{target.name}': Thu thập thêm {len(new_silver)} sản phẩm. "
-                f"Tổng kho Silver hiện tại: {len(updated_products)} sản phẩm."
+            friendly_msg = (
+                f"✔ Đã lấy tự động thành công {len(new_silver)} sản phẩm cho '{target.name}'! "
+                f"Tổng kho hiện có {len(updated_products)} sản phẩm sẵn sàng xem & tải Excel."
             )
-            self._send_json({"status": "completed", "ingested": len(new_silver), "total_silver": len(updated_products)})
+            _append_cloud_log(friendly_msg)
+            self._send_json({
+                "status": "completed",
+                "ingested": len(new_silver),
+                "total_silver": len(updated_products),
+                "friendly_message": friendly_msg,
+            })
             return
 
         if path == "/api/run-etl":

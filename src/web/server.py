@@ -41,6 +41,14 @@ class JobState:
 
 
 JOB_STATE = JobState()
+_SHARED_CATEGORY_MANAGER: Optional[CategoryManager] = None
+
+
+def _get_category_manager() -> CategoryManager:
+    global _SHARED_CATEGORY_MANAGER
+    if _SHARED_CATEGORY_MANAGER is None:
+        _SHARED_CATEGORY_MANAGER = CategoryManager()
+    return _SHARED_CATEGORY_MANAGER
 
 HTML_DASHBOARD = """<!DOCTYPE html>
 <html lang="vi">
@@ -272,137 +280,148 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
   <div class="container">
     <div class="tabs">
-      <button class="tab-btn active" onclick="switchTab('crawl')">1. Trung Tâm Cào Dữ Liệu (Playwright)</button>
-      <button class="tab-btn" onclick="switchTab('silver')">2. Dữ Liệu Sản Phẩm (Tầng Silver)</button>
-      <button class="tab-btn" onclick="switchTab('gold')">3. Báo Cáo Phân Tích BI (Tầng Gold)</button>
+      <button class="tab-btn active" onclick="switchTab('crawl')">1. Lấy Dữ Liệu Tự Động</button>
+      <button class="tab-btn" onclick="switchTab('silver')">2. Danh Sách Sản Phẩm</button>
+      <button class="tab-btn" onclick="switchTab('gold')">3. Báo Cáo Thống Kê & So Sánh</button>
     </div>
 
-    <!-- TAB 1: CRAWL CONTROL CENTER -->
+    <!-- TAB 1: NON-TECH SIMPLE CRAWL CENTER -->
     <div id="tab-crawl" class="tab-panel active">
       <div class="grid-2">
-        <!-- LEFT FORM -->
+        <!-- LEFT SIMPLE FORM -->
         <div>
           <div class="card">
-            <h2>⚙️ Điền Thông Tin & Thông Số Cào</h2>
+            <h2>✨ Chọn Thông Tin Cần Lấy Dữ Liệu</h2>
 
             <div class="form-group">
-              <label>1. Chọn Sàn Thương Mại Điện Tử (Source)</label>
+              <label>Bước 1: Chọn Sàn Thương Mại Điện Tử</label>
               <select id="sourceSelect" onchange="onSourceChange()">
-                <option value="tiki">Tiki (Playwright - Ổn định, không bị chặn Captcha)</option>
-                <option value="shopee">Shopee (Playwright + Chrome Profile)</option>
+                <option value="tiki">🔵 Tiki (Lấy dữ liệu trực tiếp nhanh 100%)</option>
+                <option value="shopee">🟠 Shopee (Chạy tự động trên máy cục bộ / Dữ liệu mẫu trên Web)</option>
               </select>
+              <div id="sourceHint" class="hint">Tiki hỗ trợ lấy dữ liệu mới trực tiếp theo thời gian thực ngay trên trình duyệt.</div>
             </div>
 
             <div class="form-group">
-              <label>2. Chế Độ Chọn Mục Tiêu Cào</label>
+              <label>Bước 2: Bạn Muốn Lấy Theo Cách Nào?</label>
               <select id="modeSelect" onchange="onModeChange()">
-                <option value="category">Chọn từ Danh mục có sẵn</option>
-                <option value="query">Nhập từ khóa tìm kiếm bất kỳ (Theo ý muốn)</option>
-                <option value="all">Cào toàn bộ danh mục của sàn</option>
+                <option value="category">Chọn theo Danh mục ngành hàng có sẵn</option>
+                <option value="query">Tự gõ tên sản phẩm muốn tìm (VD: bàn phím cơ, tai nghe...)</option>
               </select>
             </div>
 
             <div class="form-group" id="categoryGroup">
-              <label>3. Chọn Danh Mục</label>
+              <label>Chọn Danh Mục Sản Phẩm</label>
               <select id="categorySelect"></select>
-              <div class="hint">Hệ thống tự động nạp danh mục tương ứng với sàn đã chọn.</div>
             </div>
 
             <div class="form-group" id="queryGroup" style="display:none;">
-              <label>3. Nhập Từ Khóa Sản Phẩm / Danh Mục Muốn Cào</label>
-              <input type="text" id="queryInput" placeholder="VD: laptop gaming, bàn phím cơ, tai nghe sony..." />
-              <div class="hint">Nếu khớp danh mục có sẵn sẽ cào theo danh mục, nếu chưa có sẽ tự động tạo mục tiêu cào mới.</div>
+              <label>Gõ Tên Sản Phẩm Bạn Muốn Tìm</label>
+              <input type="text" id="queryInput" placeholder="VD: laptop gaming, bàn phím cơ, tai nghe bluetooth..." />
             </div>
 
             <div class="form-group">
-              <label>4. Số Trang Tối Đa Cần Cào (Max Pages)</label>
-              <input type="number" id="maxPagesInput" value="2" min="1" max="50" />
-              <div class="hint">Mỗi trang chứa khoảng 40 (Tiki) đến 60 (Shopee) sản phẩm.</div>
-            </div>
-
-            <div class="form-group" style="margin-top: 14px;">
-              <label>5. Tùy Chọn Vận Hành Pipeline</label>
-              <label class="checkbox-row">
-                <input type="checkbox" id="showHeadCheck" />
-                <span>Mở cửa sổ trình duyệt Chrome trực quan (<code>--head</code>)</span>
-              </label>
-              <label class="checkbox-row">
-                <input type="checkbox" id="resetCheckpointCheck" />
-                <span>Cào lại từ Trang 1 (Reset Checkpoint của mục tiêu này)</span>
-              </label>
-              <label class="checkbox-row">
-                <input type="checkbox" id="autoSilverGoldCheck" checked />
-                <span>Tự động chuẩn hóa <b>Tầng Silver</b> & cập nhật báo cáo <b>Tầng Gold</b> sau khi cào</span>
-              </label>
+              <label>Bước 3: Chọn Số Lượng Sản Phẩm Muốn Lấy</label>
+              <select id="limitItemsSelect">
+                <option value="20">20 sản phẩm (Rất nhanh ~3 giây)</option>
+                <option value="40" selected>40 sản phẩm (Tiêu chuẩn ~5 giây)</option>
+                <option value="80">80 sản phẩm (~10 giây)</option>
+                <option value="120">120 sản phẩm (~15 giây)</option>
+              </select>
             </div>
 
             <div class="btn-group">
-              <button id="startCrawlBtn" class="btn btn-primary" onclick="startCrawlJob()">
-                🚀 Bắt Đầu Cào Dữ Liệu
+              <button id="startCrawlBtn" class="btn btn-primary" style="padding: 14px 18px; font-size: 1rem;" onclick="startCrawlJob()">
+                🚀 Bắt Đầu Lấy Dữ Liệu
               </button>
             </div>
 
-            <div class="btn-group">
-              <button class="btn btn-shopee" onclick="startShopeeLogin()">
-                🔑 Đăng Nhập Shopee & Cấp Quyền
-              </button>
-              <button class="btn btn-success" onclick="runSilverGoldOnly()">
-                ⚡ Chạy Silver & Gold Ngay
-              </button>
-            </div>
-
-            <!-- SHOPEE AUTH PANEL -->
-            <div id="shopeeAuthBox" style="display:none; margin-top:14px; padding:14px; border-radius:10px; background:rgba(238,77,45,0.1); border:1px solid #ee4d2d;">
-              <div style="font-size:0.88rem; font-weight:700; color:#ff785a; margin-bottom:8px;">
-                🔐 Kết Nối Phiên Shopee / Nạp JSON Trực Tiếp
-              </div>
-              <div style="font-size:0.8rem; color:#cbd5e1; margin-bottom:10px;">
-                Do bảo mật trình duyệt (<i>Same-Origin Policy</i>), web trên Vercel không thể tự đọc Cookie từ tab <b>shopee.vn</b>.<br/>
-                • <b>Cách nạp dữ liệu Shopee mới lên Cloud:</b> Trên tab Shopee đã đăng nhập, tìm sản phẩm cần cào → mở <b>F12 → Network → lọc <code>search_items</code> → Copy Response JSON</b> rồi dán vào ô dưới đây (hoặc dán chuỗi <code>Cookie</code>):
-              </div>
-              <textarea id="shopeeCookieInput" rows="3" placeholder="Dán Response JSON của search_items (khuyên dùng trên Vercel) hoặc chuỗi Cookie Shopee..." style="width:100%; padding:10px; border-radius:8px; border:1px solid #475569; background:#0f172a; color:#f8fafc; font-size:0.82rem; margin-bottom:8px; resize:vertical;"></textarea>
+            <!-- FRIENDLY RESULT BANNER -->
+            <div id="friendlyBanner" style="display:none; margin-top:14px; padding:14px; border-radius:10px; background:rgba(16,185,129,0.12); border:1px solid #10b981;">
+              <div id="friendlyBannerMsg" style="font-size:0.9rem; color:#ecfdf5; font-weight:600; margin-bottom:10px;"></div>
               <div style="display:flex; gap:8px;">
-                <button class="btn btn-shopee" style="flex:1; padding:8px;" onclick="submitShopeeAuth()">✔ Xác Nhận & Nạp Dữ Liệu</button>
-                <button class="btn btn-outline" style="padding:8px 12px;" onclick="document.getElementById('shopeeAuthBox').style.display='none'">Đóng</button>
+                <button class="btn btn-success" style="flex:1; padding:8px;" onclick="switchTab('silver')">📋 Xem Danh Sách Sản Phẩm →</button>
+                <button class="btn btn-outline" style="padding:8px 12px;" onclick="downloadSilverCSV()">📥 Tải Excel (CSV)</button>
               </div>
             </div>
+
+            <!-- ADVANCED OPTIONS (COLLAPSED FOR NON-TECH USERS) -->
+            <details style="margin-top:18px; border-top:1px solid rgba(255,255,255,0.08); padding-top:12px;">
+              <summary style="cursor:pointer; font-size:0.84rem; color:#94a3b8; font-weight:600;">
+                ⚙️ Tùy chọn nâng cao (Dành cho kỹ thuật viên)
+              </summary>
+              <div style="margin-top:12px;">
+                <label class="checkbox-row">
+                  <input type="checkbox" id="showHeadCheck" />
+                  <span>Mở cửa sổ trình duyệt Chrome khi chạy cục bộ (<code>--head</code>)</span>
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="resetCheckpointCheck" />
+                  <span>Lấy lại từ đầu (Reset Checkpoint)</span>
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="autoSilverGoldCheck" checked />
+                  <span>Tự động chuẩn hóa dữ liệu & cập nhật biểu đồ thống kê</span>
+                </label>
+                <div class="btn-group" style="margin-top:10px;">
+                  <button class="btn btn-shopee" style="padding:7px 12px; font-size:0.82rem;" onclick="startShopeeLogin()">
+                    🔑 Kết Nối Shopee / Nạp JSON
+                  </button>
+                  <button class="btn btn-outline" style="padding:7px 12px; font-size:0.82rem;" onclick="runSilverGoldOnly()">
+                    ⚡ Làm Mới Báo Cáo
+                  </button>
+                </div>
+
+                <!-- SHOPEE AUTH PANEL -->
+                <div id="shopeeAuthBox" style="display:none; margin-top:12px; padding:12px; border-radius:10px; background:rgba(238,77,45,0.1); border:1px solid #ee4d2d;">
+                  <div style="font-size:0.84rem; font-weight:700; color:#ff785a; margin-bottom:6px;">
+                    🔐 Nạp Dữ Liệu JSON Shopee / Cookie (Nâng cao)
+                  </div>
+                  <textarea id="shopeeCookieInput" rows="3" placeholder="Dán Response JSON (search_items) hoặc Cookie Shopee..." style="width:100%; padding:8px; border-radius:8px; border:1px solid #475569; background:#0f172a; color:#f8fafc; font-size:0.8rem; margin-bottom:8px; resize:vertical;"></textarea>
+                  <div style="display:flex; gap:8px;">
+                    <button class="btn btn-shopee" style="flex:1; padding:7px; font-size:0.82rem;" onclick="submitShopeeAuth()">✔ Xác Nhận & Nạp</button>
+                    <button class="btn btn-outline" style="padding:7px 10px; font-size:0.82rem;" onclick="document.getElementById('shopeeAuthBox').style.display='none'">Đóng</button>
+                  </div>
+                </div>
+              </div>
+            </details>
           </div>
         </div>
 
-        <!-- RIGHT MONITOR -->
+        <!-- RIGHT OVERVIEW & STATUS -->
         <div>
           <div class="card">
             <h2>
-              <span>📡 Trạng Thái Thực Thi & Live Logs</span>
-              <button class="btn btn-outline" style="padding: 4px 10px; font-size: 0.78rem;" onclick="refreshLogsAndStatus()">Làm mới</button>
+              <span>📊 Tổng Quan Kho Dữ Liệu Hiện Có</span>
+              <button class="btn btn-outline" style="padding: 5px 12px; font-size: 0.8rem;" onclick="resetAllCheckpoints()">Khôi Phục Mặc Định</button>
             </h2>
-            <div id="currentTaskText" style="margin-bottom: 10px; font-size: 0.9rem; color: #93c5fd;">
-              Trạng thái: Đang chờ lệnh...
+            <div id="currentTaskText" style="margin-bottom: 12px; padding: 10px 14px; border-radius: 8px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); font-size: 0.9rem; color: #93c5fd;">
+              Trạng thái: Sẵn sàng. Hãy chọn sàn, danh mục, số lượng ở cột bên trái rồi bấm <b>Bắt Đầu Lấy Dữ Liệu</b>.
             </div>
-            <div id="logBox" class="log-box">Đang tải log hệ thống...</div>
-          </div>
-
-          <div class="card">
-            <h2>
-              <span>📊 Tiến Độ Cào Các Danh Mục (Checkpoints)</span>
-              <button class="btn btn-outline" style="padding: 4px 10px; font-size: 0.78rem;" onclick="resetAllCheckpoints()">Reset Tất Cả</button>
-            </h2>
-            <div class="table-scroll">
+            <div class="table-scroll" style="max-height: 360px;">
               <table>
                 <thead>
                   <tr>
                     <th>Sàn</th>
-                    <th>ID</th>
                     <th>Tên Danh Mục</th>
-                    <th>Từ Khóa</th>
-                    <th>Trang Cuối</th>
-                    <th>Đã Cào</th>
+                    <th>Số Sản Phẩm Đã Lấy</th>
                     <th>Trạng Thái</th>
                   </tr>
                 </thead>
                 <tbody id="checkpointTableBody"></tbody>
               </table>
             </div>
+          </div>
+
+          <div class="card">
+            <details>
+              <summary style="cursor:pointer; font-size:0.9rem; font-weight:600; color:#94a3b8;">
+                📡 Nhật Ký Hệ Thống Chi Tiết (Live Logs — Dành cho kỹ thuật)
+              </summary>
+              <div style="margin-top:12px;">
+                <div id="logBox" class="log-box">Đang tải nhật ký hệ thống...</div>
+              </div>
+            </details>
           </div>
         </div>
       </div>
@@ -412,14 +431,15 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     <div id="tab-silver" class="tab-panel">
       <div class="card">
         <h2>
-          <span>💎 Kho Dữ Liệu Sản Phẩm Đã Làm Sạch (Silver Layer - Parquet)</span>
-          <div style="display:flex; gap:10px;">
-            <input type="text" id="silverSearchInput" placeholder="Tìm tên SP, thương hiệu..." style="width:240px; padding:6px 10px;" oninput="renderSilverTable()" />
+          <span>💎 Danh Sách Sản Phẩm Đã Thu Thập</span>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <input type="text" id="silverSearchInput" placeholder="Tìm tên sản phẩm, thương hiệu..." style="width:230px; padding:6px 10px;" oninput="renderSilverTable()" />
             <select id="silverSourceFilter" style="width:130px; padding:6px 10px;" onchange="renderSilverTable()">
               <option value="all">Tất cả sàn</option>
-              <option value="shopee">Shopee</option>
               <option value="tiki">Tiki</option>
+              <option value="shopee">Shopee</option>
             </select>
+            <button class="btn btn-success" style="padding:6px 14px; font-size:0.85rem;" onclick="downloadSilverCSV()">📥 Tải File Excel (CSV)</button>
           </div>
         </h2>
         <div id="silverKpis" class="kpi-grid"></div>
@@ -545,12 +565,18 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
     function onSourceChange() {
       const src = document.getElementById('sourceSelect').value;
+      const hint = document.getElementById('sourceHint');
+      if (hint) {
+        hint.textContent = src === 'tiki'
+          ? 'Tiki hỗ trợ lấy dữ liệu mới trực tiếp theo thời gian thực ngay trên trình duyệt.'
+          : 'Shopee lấy dữ liệu tự động khi chạy bản máy tính (python app.py); trên Web Cloud sẽ hiển thị dữ liệu Shopee đã thu thập sẵn.';
+      }
       const select = document.getElementById('categorySelect');
       select.innerHTML = '';
       allCategories.filter(c => c.source === src).forEach(c => {
         const opt = document.createElement('option');
         opt.value = c.category_id;
-        opt.textContent = `${c.name} (ID: ${c.category_id} | từ khóa: '${c.keyword}')`;
+        opt.textContent = `${c.name}`;
         select.appendChild(opt);
       });
     }
@@ -576,15 +602,12 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         const tr = document.createElement('tr');
         const badgeClass = c.source === 'shopee' ? 'badge-shopee' : 'badge-tiki';
         const statusHtml = c.completed
-          ? '<span style="color:#10b981;font-weight:600;">✔ Hoàn thành</span>'
-          : (c.last_page > 0 ? '<span style="color:#fbbf24;">⏳ Đang dở</span>' : '<span style="color:#64748b;">Chưa cào</span>');
+          ? '<span style="color:#10b981;font-weight:600;">✔ Đã lấy xong</span>'
+          : (c.total_records > 0 ? '<span style="color:#38bdf8;font-weight:600;">✔ Đã có dữ liệu</span>' : '<span style="color:#64748b;">Chưa lấy</span>');
         tr.innerHTML = `
           <td><span class="badge ${badgeClass}">${c.source}</span></td>
-          <td><code>${c.category_id}</code></td>
           <td><b>${c.name}</b></td>
-          <td>${c.keyword}</td>
-          <td>${c.last_page}</td>
-          <td class="sold">${fmtNum(c.total_records)}</td>
+          <td class="sold">${fmtNum(c.total_records)} SP</td>
           <td>${statusHtml}</td>
         `;
         tbody.appendChild(tr);
@@ -629,26 +652,76 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       const mode = document.getElementById('modeSelect').value;
       const category_id = document.getElementById('categorySelect').value;
       const query = document.getElementById('queryInput').value.trim();
-      const max_pages = parseInt(document.getElementById('maxPagesInput').value || '2', 10);
+      const limit_items = parseInt(document.getElementById('limitItemsSelect').value || '40', 10);
+      const max_pages = Math.max(1, Math.ceil(limit_items / 40));
       const show_head = document.getElementById('showHeadCheck').checked;
       const reset_checkpoint = document.getElementById('resetCheckpointCheck').checked;
       const auto_silver_gold = document.getElementById('autoSilverGoldCheck').checked;
 
       if (mode === 'query' && !query) {
-        alert('Vui lòng nhập từ khóa muốn cào!');
+        alert('Vui lòng gõ tên sản phẩm bạn muốn tìm!');
         return;
       }
 
-      const res = await fetch('/api/crawl', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          source, mode, category_id, query, max_pages, show_head, reset_checkpoint, auto_silver_gold
-        })
-      });
-      const out = await res.json();
-      if (!res.ok) alert(out.error || 'Không thể khởi chạy job');
-      refreshLogsAndStatus();
+      const btn = document.getElementById('startCrawlBtn');
+      const banner = document.getElementById('friendlyBanner');
+      const bannerMsg = document.getElementById('friendlyBannerMsg');
+      btn.disabled = true;
+      btn.textContent = '⏳ Đang tự động lấy dữ liệu...';
+      banner.style.display = 'none';
+
+      try {
+        const res = await fetch('/api/crawl', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            source, mode, category_id, query, limit_items, max_pages, show_head, reset_checkpoint, auto_silver_gold
+          })
+        });
+        const out = await res.json();
+        if (!res.ok) {
+          alert(out.error || 'Không thể lấy dữ liệu lúc này, vui lòng thử lại.');
+        } else {
+          banner.style.display = 'block';
+          if (out.friendly_message) {
+            bannerMsg.textContent = out.friendly_message;
+          } else if (out.ingested !== undefined) {
+            bannerMsg.textContent = `✔ Đã lấy thành công ${fmtNum(out.ingested)} sản phẩm mới! Tổng kho hiện có ${fmtNum(out.total_silver || out.ingested)} sản phẩm sẵn sàng xem & tải Excel.`;
+          } else {
+            bannerMsg.textContent = '✔ Đã gửi lệnh thu thập dữ liệu tự động! Dữ liệu sẽ tự cập nhật vào Danh Sách Sản Phẩm trong giây lát.';
+          }
+          await loadSilverData();
+        }
+      } catch (e) {
+        alert('Lỗi kết nối tới máy chủ: ' + e);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🚀 Bắt Đầu Lấy Dữ Liệu';
+        refreshLogsAndStatus();
+      }
+    }
+
+    async function downloadSilverCSV() {
+      if (!silverProducts.length) {
+        await loadSilverData();
+      }
+      if (!silverProducts.length) {
+        alert('Chưa có sản phẩm nào để tải xuống!');
+        return;
+      }
+      const headers = ['San', 'ID_San_Pham', 'Thuong_Hieu', 'Ten_San_Pham', 'Gia_Ban_VND', 'Gia_Goc_VND', 'Giam_Gia_Pct', 'Da_Ban', 'Danh_Gia', 'So_Luot_Danh_Gia', 'Link_San_Pham'];
+      const esc = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+      const rows = silverProducts.map(p => [
+        p.source, p.product_id, p.brand || 'Unknown', p.name, p.price, p.original_price, p.discount_rate, p.quantity_sold, p.rating_average, p.review_count, p.product_url
+      ].map(esc).join(','));
+      const csvContent = '\\uFEFF' + headers.join(',') + '\\n' + rows.join('\\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'san_pham_thu_thap.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     }
 
     async function startShopeeLogin() {
@@ -819,7 +892,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
 
 def _get_categories_with_progress() -> List[Dict[str, Any]]:
-    cm = CategoryManager()
+    cm = _get_category_manager()
     cp = CheckpointManager()
     items: List[Dict[str, Any]] = []
     for t in cm.list_all():
@@ -1080,16 +1153,72 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
         if path == "/api/shopee-auth":
             from config import settings
-            raw_cookie = str(payload.get("cookie") or "").strip()
-            if raw_cookie:
-                for pair in raw_cookie.split(";"):
-                    if "=" in pair:
-                        k, v = pair.split("=", 1)
-                        settings.SHOPEE_COOKIES[k.strip()] = v.strip()
-            logger.info("Đã cấp quyền và đồng bộ phiên đăng nhập Shopee từ giao diện Web.")
+            raw_val = str(payload.get("cookie") or "").strip()
+            cat_id_raw = payload.get("category_id")
+            cat_id = int(cat_id_raw) if cat_id_raw and str(cat_id_raw).isdigit() else 11035954
+
+            if not raw_val:
+                self._send_json({"error": "Vui lòng dán Response JSON (search_items) hoặc Cookie Shopee."}, status=400)
+                return
+
+            # If user pasted raw Shopee search_items JSON -> write to Bronze, transform to Silver & Gold, update snapshot!
+            if raw_val.startswith("{") or raw_val.startswith("["):
+                try:
+                    from src.analytics.gold_builder import GoldBuilder
+                    from src.transform.silver_writer import SilverPipeline
+                    from src.web.snapshot import build_and_save_web_snapshot
+
+                    parsed_json = json.loads(raw_val)
+                    items = (
+                        parsed_json.get("items")
+                        or (parsed_json.get("data") or {}).get("items")
+                        or []
+                        if isinstance(parsed_json, dict)
+                        else parsed_json
+                    )
+                    if not items or not isinstance(items, list):
+                        self._send_json({"error": "Không tìm thấy mảng 'items' hợp lệ trong JSON Shopee."}, status=400)
+                        return
+
+                    cm = _get_category_manager()
+                    target = cm.get_by_id(cat_id, source="shopee") or CrawlTarget(
+                        target_id=f"shopee_{cat_id}",
+                        name=f"Shopee Category {cat_id}",
+                        source="shopee",
+                        keyword="shopee",
+                        category_id=cat_id,
+                    )
+                    cp = CheckpointManager()
+                    prog = cp.get_progress(str(cat_id))
+                    next_page = int(prog.get("last_page", 0)) + 1
+
+                    bw = BronzeWriter()
+                    bw.write_page(target=target, records=items, page_number=next_page)
+                    cp.update_progress(str(cat_id), page=next_page, added_records=len(items), completed=False)
+
+                    silver_res = SilverPipeline().run()
+                    GoldBuilder(category_mgr=cm).run()
+                    build_and_save_web_snapshot()
+
+                    msg = (
+                        f"✔ Đã ghi {len(items)} sản phẩm Shopee vào Tầng Bronze (trang {next_page}), "
+                        f"chuẩn hóa Silver (tổng {silver_res.get('total_silver', 0)} SP) và cập nhật Tầng Gold!"
+                    )
+                    logger.info(msg)
+                    self._send_json({"status": "ingested", "count": len(items), "message": msg})
+                    return
+                except Exception as e:
+                    self._send_json({"error": f"Lỗi xử lý JSON Shopee: {e}"}, status=400)
+                    return
+
+            for pair in raw_val.split(";"):
+                if "=" in pair:
+                    k, v = pair.split("=", 1)
+                    settings.SHOPEE_COOKIES[k.strip()] = v.strip()
+            logger.info("Đã cấp quyền và đồng bộ Cookie phiên đăng nhập Shopee từ giao diện Web.")
             self._send_json({
                 "status": "authorized",
-                "message": "Đã kết nối và cấp quyền phiên đăng nhập Shopee thành công!",
+                "message": "Đã lưu Cookie phiên đăng nhập Shopee thành công!",
             })
             return
 
@@ -1105,6 +1234,8 @@ def start_web_server(host: str = "127.0.0.1", port: int = 8080, open_browser: bo
     """Starts the interactive Web UI Dashboard server."""
     url = f"http://{host}:{port}"
     server = ThreadingHTTPServer((host, port), DashboardRequestHandler)
+    server.daemon_threads = True
+    _get_category_manager()
     logger.info(f"Khoi chay Web UI Dashboard tai: {url}")
     print("\n" + "=" * 65)
     print(f" 🌐 E-COMMERCE DATA PLATFORM WEB UI ĐANG CHẠY TẠI: {url}")
@@ -1116,7 +1247,7 @@ def start_web_server(host: str = "127.0.0.1", port: int = 8080, open_browser: bo
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
 
     try:
-        server.serve_forever()
+        server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
         print("\nĐã dừng Web Server.")
     finally:

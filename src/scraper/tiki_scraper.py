@@ -1,20 +1,15 @@
-import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from urllib.parse import quote, urlencode
+from typing import Any, Dict, Optional
 from tqdm import tqdm
 
 from playwright.sync_api import sync_playwright
 
-from config.settings import (
-    BROWSER_TIMEOUT_MS,
-    DEFAULT_HEADLESS,
-    DEFAULT_PAGE_LIMIT,
-    TIKI_LISTING_URL,
-)
+from config.settings import DEFAULT_HEADLESS
 from src.models.target import CrawlResult, CrawlTarget
 from src.scraper.base_scraper import BaseScraper
 from src.scraper.checkpoint import CheckpointManager
+from src.scraper.pages.base_page import BasePage
+from src.scraper.pages.tiki_page import TikiSearchPage
 from src.storage.bronze_writer import BronzeWriter
 from src.utils.logger import setup_logger
 
@@ -22,8 +17,10 @@ logger = setup_logger("tiki_scraper")
 
 
 class TikiScraper(BaseScraper):
-    """Playwright-based Tiki e-commerce scraper using browser navigation, network API interception,
-    Playwright request context, and DOM extraction fallback.
+    """Playwright POM-based Tiki scraper applying QA Automation Tester patterns:
+    - Page Object Model (`TikiSearchPage`)
+    - Network synchronization via `page.expect_response(...)`
+    - Automatic Playwright Trace recording on zero-result diagnostics
     """
 
     def __init__(
@@ -44,23 +41,16 @@ class TikiScraper(BaseScraper):
     def source_name(self) -> str:
         return "tiki"
 
-    @staticmethod
-    def _build_web_url(target: CrawlTarget, page_num: int) -> str:
-        """Builds Tiki frontend URL for browser navigation."""
-        if target.category_id:
-            slug = target.url_key or "danh-muc"
-            return f"https://tiki.vn/{slug}/c{target.category_id}?page={page_num}"
-        return f"https://tiki.vn/search?q={quote(target.keyword)}&page={page_num}"
-
     def scrape_target(
         self,
         target: CrawlTarget,
         max_pages: Optional[int] = None,
         force_restart: bool = False,
         headless: Optional[bool] = None,
+        enable_trace: bool = False,
         **kwargs,
     ) -> CrawlResult:
-        """Scrapes Tiki product listings using Playwright browser automation + API interception."""
+        """Executes Playwright POM crawl for Tiki target with Tracing & Bronze persistence."""
         use_headless = self.headless if headless is None else headless
         target_key = str(target.category_id) if target.category_id else target.target_id
 
@@ -83,14 +73,15 @@ class TikiScraper(BaseScraper):
             )
 
         logger.info(
-            f"Starting Playwright Tiki ingestion for '{target.name}' (ID: {target_key}) "
+            f"Starting Playwright POM Tiki crawl for '{target.name}' (ID: {target_key}) "
             f"from page {start_page} (Max pages: {max_pages or 'All'}, Headless: {use_headless})..."
         )
 
         current_page = start_page
         total_ingested = 0
-        pbar = tqdm(desc=f"Tiki (PW): {target.name[:18]}", unit="page", initial=start_page - 1)
+        pbar = tqdm(desc=f"Tiki POM: {target.name[:18]}", unit="page", initial=start_page - 1)
         partition_dir_str = None
+        save_trace = enable_trace
 
         with sync_playwright() as p:
             context = self.launch_persistent_context(
@@ -98,22 +89,9 @@ class TikiScraper(BaseScraper):
                 headless=use_headless,
                 use_dedicated_subdir=True,
             )
+            BasePage.start_tracing(context)
             page = context.pages[0] if context.pages else context.new_page()
-
-            captured_api_items: List[Dict[str, Any]] = []
-
-            def on_response(resp):
-                if "api/personalish/v1/blocks/listings" in resp.url or "api/v2/products" in resp.url:
-                    try:
-                        data = resp.json()
-                        items = data.get("data", [])
-                        if isinstance(items, list) and items:
-                            captured_api_items.extend(items)
-                            logger.info(f"Captured {len(items)} items from Tiki network API.")
-                    except Exception:
-                        pass
-
-            page.on("response", on_response)
+            tiki_page = TikiSearchPage(page)
 
             try:
                 while True:
@@ -121,81 +99,13 @@ class TikiScraper(BaseScraper):
                         logger.info(f"Reached configured limit of {max_pages} pages.")
                         break
 
-                    captured_api_items.clear()
                     self.sleep_jitter()
-
-                    # 1. Navigate browser page and intercept XHR API response
-                    web_url = self._build_web_url(target, current_page)
-                    try:
-                        page.goto(web_url, timeout=BROWSER_TIMEOUT_MS, wait_until="domcontentloaded")
-                        self.scroll_page(page, steps=4, delta_y=800, wait_ms=800)
-                    except Exception as e:
-                        logger.warning(f"Browser navigation warning on {web_url}: {e}")
-
-                    products: List[Dict[str, Any]] = []
-                    if captured_api_items:
-                        products = list(captured_api_items)
-
-                    # 2. If browser XHR wasn't captured yet, fetch via Playwright's BrowserContext.request
-                    if not products:
-                        params: Dict[str, Any] = {
-                            "limit": DEFAULT_PAGE_LIMIT,
-                            "page": current_page,
-                        }
-                        if target.category_id:
-                            params["category"] = target.category_id
-                            if target.url_key:
-                                params["urlKey"] = target.url_key
-                        else:
-                            params["q"] = target.keyword
-
-                        api_url = f"{TIKI_LISTING_URL}?{urlencode(params)}"
-                        try:
-                            api_resp = context.request.get(
-                                api_url,
-                                headers={"Referer": web_url, "Accept": "application/json"},
-                                timeout=BROWSER_TIMEOUT_MS,
-                            )
-                            if api_resp.ok:
-                                payload = api_resp.json()
-                                products = payload.get("data", []) or []
-                        except Exception as e:
-                            logger.warning(f"Playwright context.request fallback note: {e}")
-
-                    # 3. DOM extraction fallback via Playwright page.evaluate
-                    if not products:
-                        dom_items = page.evaluate("""
-                            () => {
-                                const results = [];
-                                const cards = Array.from(
-                                    document.querySelectorAll('a.product-item, [data-view-id="product_list_item"]')
-                                );
-                                cards.forEach((card, idx) => {
-                                    const href = card.href || (card.querySelector('a') ? card.querySelector('a').href : '');
-                                    const titleEl = card.querySelector('h3, .name, [class*="name"]');
-                                    const priceEl = card.querySelector('.price-discount__price, [class*="price"]');
-                                    const name = titleEl ? titleEl.innerText.trim() : card.innerText.split('\\n')[0].trim();
-                                    const rawPrice = priceEl ? parseInt(priceEl.innerText.replace(/[^0-9]/g, ''), 10) || 0 : 0;
-                                    const idMatch = href.match(/-p(\\d+)\\.html/);
-                                    const pid = idMatch ? parseInt(idMatch[1], 10) : (idx + 1);
-                                    if (name) {
-                                        results.push({
-                                            id: pid,
-                                            name: name,
-                                            price: rawPrice,
-                                            original_price: rawPrice,
-                                            url_path: href.replace('https://tiki.vn/', '')
-                                        });
-                                    }
-                                });
-                                return results;
-                            }
-                        """)
-                        if dom_items:
-                            logger.info(f"Extracted {len(dom_items)} Tiki items via Playwright DOM fallback.")
-                            products = dom_items
+                    products = tiki_page.open_page_and_capture(target=target, page_num=current_page)
 
                     if not products:
+                        if current_page == 1:
+                            tiki_page.capture_diagnostic_screenshot(tag=f"tiki_empty_{target_key}")
+                            save_trace = True
                         logger.info(f"No more products found at page {current_page}. Marking completed.")
                         self.checkpoint_mgr.update_progress(
                             target_key=target_key,
@@ -205,7 +115,6 @@ class TikiScraper(BaseScraper):
                         )
                         break
 
-                    # Write raw items to Bronze Storage
                     output_file = self.bronze_writer.write_page(
                         target=target,
                         records=products,
@@ -216,7 +125,6 @@ class TikiScraper(BaseScraper):
                     page_count = len(products)
                     total_ingested += page_count
 
-                    # Update Checkpoint
                     self.checkpoint_mgr.update_progress(
                         target_key=target_key,
                         page=current_page,
@@ -229,15 +137,12 @@ class TikiScraper(BaseScraper):
                     current_page += 1
 
             finally:
-                try:
-                    page.remove_listener("response", on_response)
-                except Exception:
-                    pass
+                BasePage.stop_tracing(context, trace_name=f"tiki_{target_key}", save=save_trace)
                 pbar.close()
                 context.close()
 
         logger.info(
-            f"Finished Playwright scraping target '{target.name}'. Total records ingested: {total_ingested}."
+            f"Finished Playwright POM Tiki crawl for '{target.name}'. Total records ingested: {total_ingested}."
         )
         return CrawlResult(
             target=target,

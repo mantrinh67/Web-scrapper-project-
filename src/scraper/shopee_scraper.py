@@ -1,27 +1,20 @@
-import json
-import random
 import time
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from urllib.parse import quote
+from typing import Any, Dict, Optional
 from tqdm import tqdm
 
 from playwright.sync_api import sync_playwright
 
 from config.settings import (
-    BROWSER_PROFILE_DIR,
-    BROWSER_TIMEOUT_MS,
-    DEFAULT_DELAY_MAX,
-    DEFAULT_DELAY_MIN,
     DEFAULT_HEADLESS,
     SHOPEE_BASE_URL,
     SHOPEE_COOKIES,
-    SHOPEE_SEARCH_URL,
 )
 from src.models.target import CrawlResult, CrawlTarget
 from src.scraper.base_scraper import BaseScraper
 from src.scraper.checkpoint import CheckpointManager
+from src.scraper.pages.base_page import BasePage
+from src.scraper.pages.shopee_page import ShopeeSearchPage
 from src.storage.bronze_writer import BronzeWriter
 from src.utils.logger import setup_logger
 
@@ -29,7 +22,11 @@ logger = setup_logger("shopee_scraper")
 
 
 class ShopeeScraper(BaseScraper):
-    """Playwright-based Shopee scraper with session persistence, WAF bypass, and Bronze ingestion."""
+    """Playwright POM-based Shopee scraper applying QA Automation Tester patterns:
+    - Page Object Model (`ShopeeSearchPage`)
+    - Network synchronization via `page.expect_response(...)`
+    - Automatic Screenshot + Playwright Trace (`logs/traces/*.zip`) on errors/gates
+    """
 
     def __init__(
         self,
@@ -104,9 +101,10 @@ class ShopeeScraper(BaseScraper):
         max_pages: Optional[int] = None,
         force_restart: bool = False,
         headless: Optional[bool] = None,
+        enable_trace: bool = False,
         **kwargs,
     ) -> CrawlResult:
-        """Scrapes listing pages for a single CrawlTarget using Playwright."""
+        """Executes Playwright POM crawl for a Shopee target with Tracing & Bronze persistence."""
         use_headless = self.headless if headless is None else headless
         target_key = str(target.category_id) if target.category_id else target.target_id
 
@@ -129,17 +127,19 @@ class ShopeeScraper(BaseScraper):
             )
 
         logger.info(
-            f"Starting Shopee ingestion for '{target.name}' (Keyword: '{target.keyword}', ID: {target_key}) "
+            f"Starting Playwright POM Shopee crawl for '{target.name}' (Keyword: '{target.keyword}', ID: {target_key}) "
             f"from page {start_page} (Max pages: {max_pages or 'All'}, Headless: {use_headless})..."
         )
 
         current_page = start_page
         total_ingested = 0
-        pbar = tqdm(desc=f"Shopee: {target.name[:20]}", unit="page", initial=start_page - 1)
+        pbar = tqdm(desc=f"Shopee POM: {target.name[:16]}", unit="page", initial=start_page - 1)
         partition_dir_str = None
+        save_trace = enable_trace
 
         with sync_playwright() as p:
             context = self.launch_persistent_context(playwright=p, headless=use_headless)
+            BasePage.start_tracing(context)
 
             if SHOPEE_COOKIES:
                 pw_cookies = [
@@ -152,23 +152,7 @@ class ShopeeScraper(BaseScraper):
                     logger.debug(f"Cookie injection note: {e}")
 
             page = context.pages[0] if context.pages else context.new_page()
-
-            captured_api_items: List[Dict[str, Any]] = []
-
-            def on_response(resp):
-                if any(k in resp.url for k in ("search/search_items", "search_items", "rcmd_items")):
-                    try:
-                        data = resp.json()
-                        items = data.get("items")
-                        if not items and isinstance(data.get("data"), dict):
-                            items = data["data"].get("items")
-                        if items and isinstance(items, list):
-                            captured_api_items.extend(items)
-                            logger.info(f"Captured {len(items)} items from Shopee API ({resp.url.split('?')[0]})")
-                    except Exception:
-                        pass
-
-            page.on("response", on_response)
+            shopee_page = ShopeeSearchPage(page)
 
             try:
                 while True:
@@ -176,102 +160,29 @@ class ShopeeScraper(BaseScraper):
                         logger.info(f"Reached configured limit of {max_pages} pages.")
                         break
 
-                    shopee_page_index = current_page - 1
-                    target_url = f"{SHOPEE_SEARCH_URL}?keyword={quote(target.keyword)}&page={shopee_page_index}"
-
-                    captured_api_items.clear()
-
-                    # Jitter delay
-                    delay = random.uniform(DEFAULT_DELAY_MIN, DEFAULT_DELAY_MAX)
-                    time.sleep(delay)
-
-                    try:
-                        page.goto(target_url, timeout=BROWSER_TIMEOUT_MS, wait_until="domcontentloaded")
-                        try:
-                            page.wait_for_load_state("networkidle", timeout=8000)
-                        except Exception:
-                            pass
-                    except Exception as e:
-                        logger.error(f"Error navigating to {target_url}: {e}")
-                        break
-
-                    # Check if redirected to login or verification page
-                    page_body_text = page.evaluate("() => document.body ? document.body.innerText : ''")
-                    needs_auth = (
-                        "buyer/login" in page.url
-                        or "/verify/" in page.url
-                        or "Có vẻ như bạn chưa đăng nhập" in page_body_text
-                        or "Cần đăng nhập" in page_body_text
-                    )
-                    if needs_auth:
-                        if not use_headless:
-                            logger.warning(
-                                f"Shopee yeu cau dang nhap/xac thuc tai URL: {page.url}. "
-                                "Vui long hoan tat dang nhap hoac xac thuc ngay tren cua so Chrome dang mo (toi da 120s)..."
-                            )
-                            wait_start = time.time()
-                            while time.time() - wait_start < 120:
-                                page.wait_for_timeout(2000)
-                                cur_url = page.url
-                                if "buyer/login" not in cur_url and "/verify/" not in cur_url:
-                                    logger.info("Da vuot qua buoc dang nhap/xac thuc! Dang tai lai trang tim kiem...")
-                                    page.wait_for_timeout(3000)
-                                    page.goto(target_url, timeout=BROWSER_TIMEOUT_MS, wait_until="domcontentloaded")
-                                    try:
-                                        page.wait_for_load_state("networkidle", timeout=8000)
-                                    except Exception:
-                                        pass
-                                    break
-                        else:
-                            logger.warning(
-                                f"Shopee yeu cau dang nhap/xac thuc (URL: {page.url})! "
-                                "Vui long chay kem cờ '--head' de dang nhap truc tiep tren cua so Chrome."
-                            )
-                            break
-
-                    # Scroll down to trigger lazy loading of products
-                    for _ in range(6):
-                        page.mouse.wheel(0, 900)
-                        page.wait_for_timeout(1200)
-
-                    # Extract products: prefer captured API items, fallback to DOM
-                    final_products = []
-                    if captured_api_items:
-                        final_products = list(captured_api_items)
+                    self.sleep_jitter()
+                    if current_page == start_page:
+                        final_products = shopee_page.open_search_page_and_capture(
+                            target=target,
+                            page_num=current_page,
+                            use_headless=use_headless,
+                        )
                     else:
-                        dom_products = page.evaluate("""
-                            () => {
-                                const list = [];
-                                const seen = new Set();
-                                const anchors = Array.from(
-                                    document.querySelectorAll('a[data-sqe="link"], a[href*="-i."], a[href*="/product/"], [data-sqe="item"] a')
-                                );
-                                anchors.forEach((a, idx) => {
-                                    const text = (a.innerText || '').trim();
-                                    const href = a.href;
-                                    if (text && href && !seen.has(href)) {
-                                        seen.add(href);
-                                        list.push({
-                                            dom_id: idx,
-                                            title: text.replace(/\\n+/g, ' | '),
-                                            link: href,
-                                            extracted_at: new Date().toISOString()
-                                        });
-                                    }
-                                });
-                                return list;
-                            }
-                        """)
-                        if dom_products:
-                            logger.info(f"Extracted {len(dom_products)} items via DOM fallback.")
-                        final_products = dom_products
+                        # Prefer clicking real UI pagination button like a QA tester; fallback to URL nav
+                        final_products = shopee_page.click_next_page_and_capture()
+                        if not final_products:
+                            final_products = shopee_page.open_search_page_and_capture(
+                                target=target,
+                                page_num=current_page,
+                                use_headless=use_headless,
+                            )
 
                     if not final_products:
-                        logger.warning(f"Current page URL when 0 products found: {page.url}")
                         if current_page == 1:
+                            save_trace = True
                             logger.warning(
                                 f"Chua lay duoc san pham tai trang {current_page} cho '{target.name}'. "
-                                "He thong KHONG danh dau hoan thanh de ban co the thu lai sau."
+                                "Da luu Trace & Screenshot tai logs/traces/ de debug."
                             )
                         else:
                             logger.info(f"No more products found at page {current_page}. Marking completed.")
@@ -283,7 +194,6 @@ class ShopeeScraper(BaseScraper):
                             )
                         break
 
-                    # Write raw items to Bronze Storage
                     output_file = self.bronze_writer.write_page(
                         target=target,
                         records=final_products,
@@ -294,7 +204,6 @@ class ShopeeScraper(BaseScraper):
                     page_count = len(final_products)
                     total_ingested += page_count
 
-                    # Update Checkpoint
                     self.checkpoint_mgr.update_progress(
                         target_key=target_key,
                         page=current_page,
@@ -307,15 +216,12 @@ class ShopeeScraper(BaseScraper):
                     current_page += 1
 
             finally:
-                try:
-                    page.remove_listener("response", on_response)
-                except Exception:
-                    pass
+                BasePage.stop_tracing(context, trace_name=f"shopee_{target_key}", save=save_trace)
                 pbar.close()
                 context.close()
 
         logger.info(
-            f"Finished scraping target '{target.name}'. Total records ingested: {total_ingested}."
+            f"Finished Playwright POM Shopee crawl for '{target.name}'. Total records ingested: {total_ingested}."
         )
         return CrawlResult(
             target=target,
