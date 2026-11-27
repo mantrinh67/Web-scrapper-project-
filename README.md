@@ -75,11 +75,11 @@ Crawl/
 │   ├── models/
 │   │   └── target.py            # Pydantic models: CrawlTarget, CrawlResult
 │   ├── scraper/
-│   │   ├── base_scraper.py      # Abstract Base Class cho Scraper
+│   │   ├── pages/               # Page Object Model (BasePage, ShopeeSearchPage, TikiSearchPage)
+│   │   ├── base_scraper.py      # Abstract Base Class cho Playwright Scraper
 │   │   ├── checkpoint.py        # Quản lý checkpoint tiến độ
-│   │   ├── client.py            # HTTP Client với Tenacity retry & jitter delay
-│   │   ├── shopee_scraper.py    # Shopee Scraper (Playwright + Network API Interception)
-│   │   └── tiki_scraper.py      # Tiki Scraper (REST API)
+│   │   ├── shopee_scraper.py    # Shopee Scraper (Playwright POM + Trace Viewer)
+│   │   └── tiki_scraper.py      # Tiki Scraper (Playwright POM + API Interception)
 │   ├── storage/
 │   │   └── bronze_writer.py     # Ghi dữ liệu thô JSONL kèm Audit Metadata
 │   ├── transform/
