@@ -283,6 +283,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       <button class="tab-btn active" onclick="switchTab('crawl')">1. Lấy Dữ Liệu Tự Động</button>
       <button class="tab-btn" onclick="switchTab('silver')">2. Danh Sách Sản Phẩm</button>
       <button class="tab-btn" onclick="switchTab('gold')">3. Báo Cáo Thống Kê & So Sánh</button>
+      <button class="tab-btn" onclick="switchTab('ktv')">4. 🛠️ Khung Kỹ Thuật Viên (KTV)</button>
     </div>
 
     <!-- TAB 1: NON-TECH SIMPLE CRAWL CENTER -->
@@ -345,46 +346,10 @@ HTML_DASHBOARD = """<!DOCTYPE html>
               </div>
             </div>
 
-            <!-- ADVANCED OPTIONS (COLLAPSED FOR NON-TECH USERS) -->
-            <details style="margin-top:18px; border-top:1px solid rgba(255,255,255,0.08); padding-top:12px;">
-              <summary style="cursor:pointer; font-size:0.84rem; color:#94a3b8; font-weight:600;">
-                ⚙️ Tùy chọn nâng cao (Dành cho kỹ thuật viên)
-              </summary>
-              <div style="margin-top:12px;">
-                <label class="checkbox-row">
-                  <input type="checkbox" id="showHeadCheck" />
-                  <span>Mở cửa sổ trình duyệt Chrome khi chạy cục bộ (<code>--head</code>)</span>
-                </label>
-                <label class="checkbox-row">
-                  <input type="checkbox" id="resetCheckpointCheck" />
-                  <span>Lấy lại từ đầu (Reset Checkpoint)</span>
-                </label>
-                <label class="checkbox-row">
-                  <input type="checkbox" id="autoSilverGoldCheck" checked />
-                  <span>Tự động chuẩn hóa dữ liệu & cập nhật biểu đồ thống kê</span>
-                </label>
-                <div class="btn-group" style="margin-top:10px;">
-                  <button class="btn btn-shopee" style="padding:7px 12px; font-size:0.82rem;" onclick="startShopeeLogin()">
-                    🔑 Kết Nối Shopee / Nạp JSON
-                  </button>
-                  <button class="btn btn-outline" style="padding:7px 12px; font-size:0.82rem;" onclick="runSilverGoldOnly()">
-                    ⚡ Làm Mới Báo Cáo
-                  </button>
-                </div>
-
-                <!-- SHOPEE AUTH PANEL -->
-                <div id="shopeeAuthBox" style="display:none; margin-top:12px; padding:12px; border-radius:10px; background:rgba(238,77,45,0.1); border:1px solid #ee4d2d;">
-                  <div style="font-size:0.84rem; font-weight:700; color:#ff785a; margin-bottom:6px;">
-                    🔐 Nạp Dữ Liệu JSON Shopee / Cookie (Nâng cao)
-                  </div>
-                  <textarea id="shopeeCookieInput" rows="3" placeholder="Dán Response JSON (search_items) hoặc Cookie Shopee..." style="width:100%; padding:8px; border-radius:8px; border:1px solid #475569; background:#0f172a; color:#f8fafc; font-size:0.8rem; margin-bottom:8px; resize:vertical;"></textarea>
-                  <div style="display:flex; gap:8px;">
-                    <button class="btn btn-shopee" style="flex:1; padding:7px; font-size:0.82rem;" onclick="submitShopeeAuth()">✔ Xác Nhận & Nạp</button>
-                    <button class="btn btn-outline" style="padding:7px 10px; font-size:0.82rem;" onclick="document.getElementById('shopeeAuthBox').style.display='none'">Đóng</button>
-                  </div>
-                </div>
-              </div>
-            </details>
+            <div style="margin-top:16px; border-top:1px solid rgba(255,255,255,0.07); padding-top:12px; display:flex; justify-content:space-between; align-items:center;">
+              <span class="hint" style="margin:0;">Cần dán JSON Shopee, tải file hoặc xem Logs?</span>
+              <button class="btn btn-outline" style="padding:6px 12px; font-size:0.8rem;" onclick="switchTab('ktv')">🛠️ Mở Khung KTV →</button>
+            </div>
           </div>
         </div>
 
@@ -398,7 +363,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             <div id="currentTaskText" style="margin-bottom: 12px; padding: 10px 14px; border-radius: 8px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); font-size: 0.9rem; color: #93c5fd;">
               Trạng thái: Sẵn sàng. Hãy chọn sàn, danh mục, số lượng ở cột bên trái rồi bấm <b>Bắt Đầu Lấy Dữ Liệu</b>.
             </div>
-            <div class="table-scroll" style="max-height: 360px;">
+            <div class="table-scroll" style="max-height: 440px;">
               <table>
                 <thead>
                   <tr>
@@ -411,17 +376,6 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 <tbody id="checkpointTableBody"></tbody>
               </table>
             </div>
-          </div>
-
-          <div class="card">
-            <details>
-              <summary style="cursor:pointer; font-size:0.9rem; font-weight:600; color:#94a3b8;">
-                📡 Nhật Ký Hệ Thống Chi Tiết (Live Logs — Dành cho kỹ thuật)
-              </summary>
-              <div style="margin-top:12px;">
-                <div id="logBox" class="log-box">Đang tải nhật ký hệ thống...</div>
-              </div>
-            </details>
           </div>
         </div>
       </div>
@@ -537,6 +491,88 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         </div>
       </div>
     </div>
+
+    <!-- TAB 4: DEDICATED TECHNICIAN (KTV) WORKSPACE -->
+    <div id="tab-ktv" class="tab-panel">
+      <div style="display:grid; grid-template-columns: 1.55fr 1fr; gap: 22px;">
+        <!-- LARGE RESPONSE JSON EDITOR PANEL -->
+        <div class="card">
+          <h2>
+            <span>🛠️ Khung Nạp Response JSON Shopee (search_items / recommend_v2)</span>
+            <span id="jsonSizeBadge" class="badge badge-idle" style="font-size:0.74rem;">0 KB | 0 ký tự</span>
+          </h2>
+
+          <div style="display:grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; margin-bottom: 14px;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Danh Mục Đích Shopee (Gán cho dữ liệu nạp vào)</label>
+              <select id="ktvShopeeCategorySelect"></select>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <label class="btn btn-outline" style="padding:9px 12px; font-size:0.84rem; cursor:pointer;">
+                📁 Mở File .json
+                <input type="file" id="jsonFileInput" accept=".json,.jsonl,.txt" style="display:none;" onchange="loadJsonFileToEditor(event)" />
+              </label>
+              <button class="btn btn-outline" style="padding:9px 12px; font-size:0.84rem;" onclick="fillSampleShopeeJson()">📋 Dán JSON Mẫu</button>
+              <button class="btn btn-outline" style="padding:9px 12px; font-size:0.84rem;" onclick="prettifyShopeeJson()">✨ Format JSON</button>
+              <button class="btn btn-outline" style="padding:9px 12px; font-size:0.84rem;" onclick="clearShopeeJson()">🗑️ Xóa</button>
+            </div>
+          </div>
+
+          <div class="hint" style="margin-bottom:10px;">
+            Hỗ trợ tự động quét đệ quy mọi định dạng API Shopee (<code>search_items</code>, <code>recommend_v2</code>, <code>rcmd_items</code>) hoặc chuỗi <code>Cookie</code> phiên làm việc.
+          </div>
+
+          <textarea
+            id="shopeeCookieInput"
+            oninput="updateJsonSizeBadge()"
+            placeholder='Dán toàn bộ nội dung Response JSON từ tab Network (VD: {"bff_meta": ..., "items": [...]}) hoặc tải file .json từ máy...'
+            style="width:100%; height: 390px; padding: 14px; border-radius: 10px; border: 1px solid #475569; background: #090d16; color: #e2e8f0; font-family: 'Consolas', 'Courier New', monospace; font-size: 0.84rem; line-height: 1.48; resize: vertical;"
+          ></textarea>
+
+          <div class="btn-group" style="margin-top: 14px;">
+            <button id="ktvSubmitBtn" class="btn btn-shopee" style="flex:1; padding: 13px 18px; font-size: 0.96rem;" onclick="submitShopeeAuth()">
+              🚀 Bóc Tách & Nạp Ngay Vào Tầng Silver & Gold
+            </button>
+            <button class="btn btn-outline" style="padding: 13px 16px;" onclick="startShopeeLogin()">
+              🔑 Mở Trang Shopee Login ↗
+            </button>
+          </div>
+
+          <div id="ktvResultBox" style="display:none; margin-top: 14px; padding: 12px 14px; border-radius: 8px; font-size: 0.88rem;"></div>
+        </div>
+
+        <!-- RIGHT KTV CONTROLS & LIVE LOGS -->
+        <div>
+          <div class="card">
+            <h2>⚙️ Cấu Hình Vận Hành Crawler & ETL</h2>
+            <label class="checkbox-row">
+              <input type="checkbox" id="showHeadCheck" />
+              <span>Mở cửa sổ trình duyệt Chrome khi chạy cục bộ (<code>--head</code>)</span>
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" id="resetCheckpointCheck" />
+              <span>Xóa Checkpoint cũ trước khi cào (<code>--reset-checkpoint</code>)</span>
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" id="autoSilverGoldCheck" checked />
+              <span>Tự động chạy chuẩn hóa Silver & tổng hợp Gold sau khi cào</span>
+            </label>
+            <div class="btn-group" style="margin-top:12px;">
+              <button class="btn btn-success" style="flex:1;" onclick="runSilverGoldOnly()">⚡ Chạy Silver & Gold ETL</button>
+              <button class="btn btn-outline" onclick="resetAllCheckpoints()">🔄 Reset Checkpoints</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>
+              <span>📡 Live Logs Hệ Thống</span>
+              <button class="btn btn-outline" style="padding: 4px 10px; font-size: 0.78rem;" onclick="refreshLogsAndStatus()">Làm mới</button>
+            </h2>
+            <div id="logBox" class="log-box" style="height: 350px;">Đang tải nhật ký hệ thống...</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -554,13 +590,14 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
     function switchTab(tabName) {
       document.querySelectorAll('.tab-btn').forEach((btn, idx) => {
-        const map = ['crawl', 'silver', 'gold'];
+        const map = ['crawl', 'silver', 'gold', 'ktv'];
         btn.classList.toggle('active', map[idx] === tabName);
       });
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       document.getElementById('tab-' + tabName).classList.add('active');
       if (tabName === 'silver') loadSilverData();
       if (tabName === 'gold') loadGoldData();
+      if (tabName === 'ktv') refreshLogsAndStatus();
     }
 
     function onSourceChange() {
@@ -592,7 +629,102 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       const data = await res.json();
       allCategories = data.categories || [];
       onSourceChange();
+      populateKtvShopeeCategories();
       renderCheckpoints(data.categories || []);
+    }
+
+    function populateKtvShopeeCategories() {
+      const ktvSel = document.getElementById('ktvShopeeCategorySelect');
+      if (!ktvSel) return;
+      ktvSel.innerHTML = '';
+      allCategories.filter(c => c.source === 'shopee').forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.category_id;
+        opt.textContent = `${c.name} (ID: ${c.category_id})`;
+        ktvSel.appendChild(opt);
+      });
+    }
+
+    function updateJsonSizeBadge() {
+      const val = document.getElementById('shopeeCookieInput').value || '';
+      const kb = (new Blob([val]).size / 1024).toFixed(1);
+      const badge = document.getElementById('jsonSizeBadge');
+      if (badge) badge.textContent = `${kb} KB | ${val.length.toLocaleString('vi-VN')} ký tự`;
+    }
+
+    function loadJsonFileToEditor(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        document.getElementById('shopeeCookieInput').value = e.target.result || '';
+        updateJsonSizeBadge();
+      };
+      reader.readAsText(file, 'UTF-8');
+    }
+
+    function fillSampleShopeeJson() {
+      const sample = {
+        items: [
+          {
+            itemid: 900100201,
+            shopid: 888001,
+            item_card_displayed_asset: {
+              name: "Laptop Apple MacBook Air M3 13 inch 16GB/256GB Chính Hãng",
+              shop_location: "TP. Hồ Chí Minh"
+            },
+            item_data: {
+              global_brand: { display_name: "Apple" },
+              shop_data: { shop_name: "Apple Flagship Store" },
+              item_card_display_price: {
+                price: 2499000000000,
+                original_price: 2799000000000,
+                discount: 11
+              },
+              item_card_display_sold_count: { historical_sold_count: 1250 },
+              item_rating: { rating_star: 4.95, rating_count: [320, 1, 0, 2, 10, 307] }
+            }
+          },
+          {
+            itemid: 900100202,
+            shopid: 888002,
+            item_card_displayed_asset: {
+              name: "Laptop Gaming ASUS TUF F15 i5-12500H RTX 3050 16GB/512GB",
+              shop_location: "Hà Nội"
+            },
+            item_data: {
+              global_brand: { display_name: "ASUS" },
+              shop_data: { shop_name: "ASUS Official Store" },
+              item_card_display_price: {
+                price: 1799000000000,
+                original_price: 2199000000000,
+                discount: 18
+              },
+              item_card_display_sold_count: { historical_sold_count: 840 },
+              item_rating: { rating_star: 4.9, rating_count: [185, 0, 1, 3, 12, 169] }
+            }
+          }
+        ]
+      };
+      document.getElementById('shopeeCookieInput').value = JSON.stringify(sample, null, 2);
+      updateJsonSizeBadge();
+    }
+
+    function prettifyShopeeJson() {
+      const box = document.getElementById('shopeeCookieInput');
+      try {
+        const parsed = JSON.parse(box.value);
+        box.value = JSON.stringify(parsed, null, 2);
+        updateJsonSizeBadge();
+      } catch (e) {
+        alert('Nội dung hiện tại không phải JSON hợp lệ: ' + e.message);
+      }
+    }
+
+    function clearShopeeJson() {
+      document.getElementById('shopeeCookieInput').value = '';
+      document.getElementById('ktvResultBox').style.display = 'none';
+      updateJsonSizeBadge();
     }
 
     function renderCheckpoints(cats) {
@@ -725,9 +857,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     }
 
     async function startShopeeLogin() {
-      // Mở trực tiếp trang đăng nhập Shopee trên trình duyệt của người dùng
       window.open('https://shopee.vn/buyer/login', '_blank', 'noopener,noreferrer');
-      document.getElementById('shopeeAuthBox').style.display = 'block';
       try {
         await fetch('/api/login-shopee', { method: 'POST' });
       } catch (e) {}
@@ -736,25 +866,54 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
     async function submitShopeeAuth() {
       const cookie_or_json = document.getElementById('shopeeCookieInput').value.trim();
-      const category_id = document.getElementById('categorySelect').value;
+      const ktvSel = document.getElementById('ktvShopeeCategorySelect');
+      const category_id = ktvSel ? ktvSel.value : document.getElementById('categorySelect').value;
+      const resultBox = document.getElementById('ktvResultBox');
+      const btn = document.getElementById('ktvSubmitBtn');
+
       if (!cookie_or_json) {
-        alert('Vui lòng dán Response JSON (search_items) hoặc chuỗi Cookie từ tab Shopee trước khi bấm Xác nhận!');
+        alert('Vui lòng dán Response JSON (search_items / recommend_v2) hoặc tải file .json trước khi bấm Nạp!');
         return;
       }
-      const res = await fetch('/api/shopee-auth', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ cookie: cookie_or_json, category_id })
-      });
-      const out = await res.json();
-      if (res.ok) {
-        document.getElementById('shopeeAuthBox').style.display = 'none';
-        document.getElementById('shopeeCookieInput').value = '';
-        alert(out.message || 'Đã lưu và xử lý dữ liệu Shopee thành công!');
-      } else {
-        alert(out.error || 'Không thể xử lý dữ liệu Shopee');
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Đang phân tích & nạp dữ liệu...';
       }
-      refreshLogsAndStatus();
+
+      try {
+        const res = await fetch('/api/shopee-auth', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ cookie: cookie_or_json, category_id })
+        });
+        const out = await res.json();
+        resultBox.style.display = 'block';
+        if (res.ok) {
+          resultBox.style.background = 'rgba(16,185,129,0.14)';
+          resultBox.style.border = '1px solid #10b981';
+          resultBox.style.color = '#ecfdf5';
+          resultBox.innerHTML = `<b>${out.message || '✔ Đã nạp dữ liệu Shopee thành công!'}</b> <button class="btn btn-success" style="margin-left:10px; padding:4px 10px; font-size:0.8rem;" onclick="switchTab('silver')">Xem Tab Sản Phẩm →</button>`;
+          await loadSilverData();
+        } else {
+          resultBox.style.background = 'rgba(239,68,68,0.14)';
+          resultBox.style.border = '1px solid #ef4444';
+          resultBox.style.color = '#fecaca';
+          resultBox.textContent = '✖ Lỗi: ' + (out.error || 'Không thể xử lý dữ liệu Shopee');
+        }
+      } catch (e) {
+        resultBox.style.display = 'block';
+        resultBox.style.background = 'rgba(239,68,68,0.14)';
+        resultBox.style.border = '1px solid #ef4444';
+        resultBox.style.color = '#fecaca';
+        resultBox.textContent = '✖ Lỗi kết nối: ' + e;
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '🚀 Bóc Tách & Nạp Ngay Vào Tầng Silver & Gold';
+        }
+        refreshLogsAndStatus();
+      }
     }
 
     async function runSilverGoldOnly() {
